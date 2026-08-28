@@ -633,31 +633,57 @@ function splitStructuredDigitiseBlock(
   rect: { x1: number; y1: number; x2: number; y2: number },
 ): DigitiseBlock[] | null {
   const htmlRows = Array.from(text.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi))
-    .map((match) => decodeDigitiseMarkup(match[1]))
-    .filter((row) => row.length > 0);
-  if (htmlRows.length > 1) return splitTextIntoRows(htmlRows, rect);
+    .map((match, slot) => ({ text: decodeDigitiseMarkup(match[1]), slot }))
+    .filter((row) => row.text.length > 0);
+  if (htmlRows.length > 1) {
+    const firstMarker = htmlRows.findIndex((row) => isQuestionNumberText(row.text));
+    const markerCount = htmlRows.filter((row) => isQuestionNumberText(row.text)).length;
+    const rows = firstMarker > 0 && markerCount > 1 ? htmlRows.slice(firstMarker) : htmlRows;
+    // Sarvam's page-level HTML table bbox includes a leading blank table row on
+    // the answer sheet. Reserve that slot when the first row is already Q1;
+    // otherwise every generated box is exactly one answer above its handwriting.
+    const leadingSlot = firstMarker === 0 ? 1 : 0;
+    const shiftedRows = leadingSlot > 0
+      ? rows.map((row) => ({ ...row, slot: row.slot + leadingSlot }))
+      : rows;
+    return splitTextIntoRows(shiftedRows, rect, htmlRows.length + leadingSlot);
+  }
 
   const markdownRows = text
     .split(/\r?\n/)
-    .map((row) => row.trim())
-    .filter((row) => row.startsWith("|") && row.endsWith("|"))
-    .filter((row) => !/^\|?\s*:?-{2,}/.test(row.replace(/\|/g, "")))
-    .map(decodeDigitiseMarkup)
-    .filter((row) => row.length > 0);
-  return markdownRows.length > 1 ? splitTextIntoRows(markdownRows, rect) : null;
+    .map((row, slot) => ({ text: row.trim(), slot }))
+    .filter((row) => row.text.startsWith("|") && row.text.endsWith("|"))
+    .filter((row) => !/^\|?\s*:?-{2,}/.test(row.text.replace(/\|/g, "")))
+    .map((row) => ({ ...row, text: decodeDigitiseMarkup(row.text) }))
+    .filter((row) => row.text.length > 0);
+  if (markdownRows.length > 1) return splitTextIntoRows(markdownRows, rect, text.split(/\r?\n/).length);
+
+  const lines = text.split(/\r?\n/).map((line) => decodeDigitiseMarkup(line)).filter(Boolean);
+  const markerIndexes = lines
+    .map((line, index) => (isQuestionNumberText(line) ? index : -1))
+    .filter((index) => index >= 0);
+  if (markerIndexes.length > 1) {
+    const rows = markerIndexes.map((start, index) => ({
+      text: lines.slice(start, markerIndexes[index + 1] ?? lines.length).join(" "),
+      slot: index,
+    }));
+    return splitTextIntoRows(rows, rect, rows.length);
+  }
+  return null;
 }
 
 function splitTextIntoRows(
-  rows: string[],
+  rows: Array<{ text: string; slot: number }>,
   rect: { x1: number; y1: number; x2: number; y2: number },
+  slotCount: number,
 ): DigitiseBlock[] {
-  const rowHeight = (rect.y2 - rect.y1) / rows.length;
-  return rows.map((row, index) => ({
-    text: row,
+  const rowHeight = (rect.y2 - rect.y1) / Math.max(slotCount, 1);
+  return rows.map((row) => ({
+    text: row.text,
     x1: rect.x1,
-    y1: rect.y1 + rowHeight * index,
+    y1: rect.y1 + rowHeight * row.slot,
     x2: rect.x2,
-    y2: index === rows.length - 1 ? rect.y2 : rect.y1 + rowHeight * (index + 1),
+    y2: row.slot >= slotCount - 1 ? rect.y2 : rect.y1 + rowHeight * (row.slot + 1),
   }));
 }
 

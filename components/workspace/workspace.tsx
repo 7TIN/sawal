@@ -174,7 +174,7 @@ export function Workspace() {
           answers: Answer[];
           provider: ProviderName;
         }>("answer-sheet");
-        if (!cancelled && cached && cached.version === 16 && cached.questions.length > 0) {
+        if (!cancelled && cached && cached.version === 18 && cached.questions.length > 0) {
           setExtraction({
             status: "done",
             questions: cached.questions,
@@ -435,7 +435,7 @@ export function Workspace() {
 
       try {
         await saveExtraction("answer-sheet", {
-          version: 16,
+          version: 18,
           questions: newExtraction.questions,
           answers: newExtraction.answers,
           provider: newExtraction.provider,
