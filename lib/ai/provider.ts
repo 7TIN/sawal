@@ -934,14 +934,31 @@ function scoreAnswerText(answerText: string, candidateText: string): number {
   if (normalizedExpected && normalizedCandidate.includes(normalizedExpected)) return 1;
 
   const candidate = new Set(answerTextTokens(candidateText));
-  const overlap = expected.filter((token) => candidate.has(token)).length;
+  const overlap = expected.filter((token) =>
+    Array.from(candidate).some((candidateToken) => similarOcrToken(token, candidateToken)),
+  ).length;
   return overlap / expected.length;
 }
 
-function scoreAnswerLine(answer: ExtractedAnswer, line: AnswerSheetLine): number {
-  const answerText = answerTextTokens(answer.text);
-  if (answerText.length === 0) return 0;
-  return scoreAnswerText(answer.text, line.text);
+function similarOcrToken(expected: string, candidate: string): boolean {
+  if (expected === candidate) return true;
+  if (expected.length < 4 || candidate.length < 4) return false;
+  const maxDistance = Math.max(1, Math.floor(Math.min(expected.length, candidate.length) * 0.2));
+  if (Math.abs(expected.length - candidate.length) > maxDistance) return false;
+
+  let previous = Array.from({ length: candidate.length + 1 }, (_, i) => i);
+  for (let i = 0; i < expected.length; i++) {
+    const current = [i + 1];
+    for (let j = 0; j < candidate.length; j++) {
+      current.push(
+        expected[i] === candidate[j]
+          ? previous[j]
+          : 1 + Math.min(previous[j], previous[j + 1], current[j]),
+      );
+    }
+    previous = current;
+  }
+  return previous[candidate.length] <= maxDistance;
 }
 
 function markerMatchesAnswer(lineText: string, answerKey: string): boolean {
@@ -957,12 +974,11 @@ function regionFromAnchor(
   lines: AnswerSheetLine[],
   anchorIndex: number,
   leftMargin: number,
+  maxHeight = 0.3,
 ): BBox {
   const anchor = lines[anchorIndex];
   const selected = [anchor];
   const maxGap = 0.07;
-  const maxHeight = 0.3;
-
   for (let i = anchorIndex + 1; i < lines.length; i++) {
     const previous = lines[i - 1];
     const line = lines[i];
@@ -977,7 +993,7 @@ function regionFromAnchor(
   return unionNormalizedRects(selected.map((line) => line.bbox));
 }
 
-function usableAnswerRegion(bbox: BBox): boolean {
+function usableAnswerRegion(bbox: BBox, allowLarge = false): boolean {
   return (
     Number.isFinite(bbox.x) &&
     Number.isFinite(bbox.y) &&
@@ -985,12 +1001,93 @@ function usableAnswerRegion(bbox: BBox): boolean {
     Number.isFinite(bbox.h) &&
     bbox.w > 0 &&
     bbox.h > 0 &&
-    bbox.h <= 0.55 &&
-    bbox.w * bbox.h <= 0.5 &&
-    !(bbox.w >= 0.9 && bbox.h >= 0.5) &&
+    (allowLarge ? bbox.h <= 0.5 && bbox.w * bbox.h <= 0.5 : bbox.h <= 0.55 && bbox.w * bbox.h <= 0.5) &&
+    !(bbox.w >= 0.96 && bbox.h >= 0.48) &&
     bbox.w < 0.98 &&
     bbox.h < 0.98
   );
+}
+
+function isLongAnswer(answer: ExtractedAnswer): boolean {
+  return answerTextTokens(answer.text).length >= 10;
+}
+
+function capLongAnswerRegion(bbox: BBox): BBox {
+  if (bbox.h <= 0.5) return bbox;
+  return { ...bbox, h: Math.min(0.5, 1 - bbox.y) };
+}
+
+function availableLongAnswerRegion(
+  bbox: BBox,
+  usedRegions: Array<{ page: number; bbox: BBox }>,
+  page: number,
+): BBox | null {
+  let candidates = [bbox];
+  for (const used of usedRegions) {
+    if (used.page !== page || !regionsOverlap(used.bbox, bbox)) continue;
+    const next: BBox[] = [];
+    for (const candidate of candidates) {
+      if (!regionsOverlap(used.bbox, candidate)) {
+        next.push(candidate);
+        continue;
+      }
+      const candidateBottom = candidate.y + candidate.h;
+      const usedBottom = used.bbox.y + used.bbox.h;
+      if (used.bbox.y > candidate.y + 0.02) {
+        next.push({ ...candidate, h: used.bbox.y - candidate.y });
+      }
+      if (usedBottom < candidateBottom - 0.02) {
+        next.push({
+          ...candidate,
+          y: usedBottom,
+          h: candidateBottom - usedBottom,
+        });
+      }
+    }
+    candidates = next;
+  }
+
+  const best = candidates.sort((first, second) => second.h - first.h)[0];
+  if (!best || best.h < 0.08) return null;
+  return capLongAnswerRegion(best);
+}
+
+function regionsOverlap(first: BBox, second: BBox): boolean {
+  const overlapWidth = Math.max(0, Math.min(first.x + first.w, second.x + second.w) - Math.max(first.x, second.x));
+  const overlapHeight = Math.max(0, Math.min(first.y + first.h, second.y + second.h) - Math.max(first.y, second.y));
+  const overlapArea = overlapWidth * overlapHeight;
+  const smallerArea = Math.min(first.w * first.h, second.w * second.h);
+  return smallerArea > 0 && overlapArea / smallerArea >= 0.65;
+}
+
+function candidateLineRegion(
+  answer: ExtractedAnswer,
+  lines: AnswerSheetLine[],
+  startIndex: number,
+  leftMargin: number,
+): { pageIndex: number; bbox: BBox; rawBbox: BBox; score: number } | null {
+  const selected: AnswerSheetLine[] = [];
+  const maxHeight = isLongAnswer(answer) ? 0.95 : 0.3;
+  const maxGap = 0.07;
+
+  for (let index = startIndex; index < lines.length; index++) {
+    const line = lines[index];
+    if (index > startIndex) {
+      const previous = lines[index - 1];
+      if (isQuestionStartLine(line, leftMargin)) break;
+      const gap = line.bbox.y - (previous.bbox.y + previous.bbox.h);
+      const height = line.bbox.y + line.bbox.h - lines[startIndex].bbox.y;
+      if (gap > maxGap || height > maxHeight) break;
+    }
+    selected.push(line);
+  }
+
+  if (selected.length === 0) return null;
+  const rawBbox = unionNormalizedRects(selected.map((line) => line.bbox));
+  const score = scoreAnswerText(answer.text, selected.map((line) => line.text).join(" "));
+  const bbox = isLongAnswer(answer) ? capLongAnswerRegion(rawBbox) : rawBbox;
+  if (!usableAnswerRegion(bbox, isLongAnswer(answer) && score >= 0.5)) return null;
+  return { pageIndex: startIndex, bbox, rawBbox, score };
 }
 
 function normalizedDigitiseBlockBBox(block: DigitiseBlock, meta: DigitisePage): BBox {
@@ -1034,6 +1131,7 @@ function assignAnswerRegionsFromBlocks(
 
   const assigned = new Map<string, { page: number; bbox: BBox }>();
   const usedAnchors = new Set<string>();
+  const usedRegions: Array<{ page: number; bbox: BBox }> = [];
   let markerMatches = 0;
   let blockTextMatches = 0;
   let lineTextMatches = 0;
@@ -1043,22 +1141,29 @@ function assignAnswerRegionsFromBlocks(
   // being assigned to a question merely because they occur at the same array index.
   for (const answer of allAnswers) {
     const answerKey = extractQuestionMarker(answer.label) ?? extractQuestionMarker(answer.text);
+    const allowLarge = isLongAnswer(answer);
     if (!answerKey) continue;
 
     for (const page of pages) {
-      const anchorIndex = page.lines.findIndex(
-        (line, index) =>
-          !usedAnchors.has(`${page.page}:${index}`) &&
-          isQuestionStartLine(line, page.leftMargin) &&
-          markerMatchesAnswer(line.text, answerKey) &&
-          usableAnswerRegion(regionFromAnchor(page.lines, index, page.leftMargin)),
-      );
+      const anchorIndex = page.lines.findIndex((line, index) => {
+        if (
+          usedAnchors.has(`${page.page}:${index}`) ||
+          !isQuestionStartLine(line, page.leftMargin) ||
+          !markerMatchesAnswer(line.text, answerKey)
+        ) return false;
+        const rawBbox = regionFromAnchor(page.lines, index, page.leftMargin, allowLarge ? 0.5 : 0.3);
+        const bbox = allowLarge ? capLongAnswerRegion(rawBbox) : rawBbox;
+        return usableAnswerRegion(bbox, allowLarge);
+      });
       if (anchorIndex < 0) continue;
 
-      const bbox = regionFromAnchor(page.lines, anchorIndex, page.leftMargin);
-      if (!usableAnswerRegion(bbox)) continue;
+      const rawBbox = regionFromAnchor(page.lines, anchorIndex, page.leftMargin, allowLarge ? 0.5 : 0.3);
+      const bbox = allowLarge ? capLongAnswerRegion(rawBbox) : rawBbox;
+      if (!usableAnswerRegion(bbox, allowLarge)) continue;
+      if (usedRegions.some((region) => region.page === page.page && regionsOverlap(region.bbox, bbox))) continue;
       usedAnchors.add(`${page.page}:${anchorIndex}`);
       assigned.set(answer.id, { page: page.page, bbox });
+      usedRegions.push({ page: page.page, bbox });
       markerMatches++;
       break;
     }
@@ -1074,10 +1179,19 @@ function assignAnswerRegionsFromBlocks(
       for (let index = 0; index < page.meta.blocks.length; index++) {
         const block = page.meta.blocks[index];
         const blockKey = `${page.page}:block:${index}`;
-        if (usedAnchors.has(blockKey)) continue;
-        const bbox = normalizedDigitiseBlockBBox(block, page.meta);
+        const longAnswer = isLongAnswer(answer);
+        if (usedAnchors.has(blockKey) && !longAnswer) continue;
         const score = scoreAnswerText(answer.text, block.text);
-        if (!usableAnswerRegion(bbox)) continue;
+        const allowLarge = longAnswer && score >= 0.5;
+        const rawBbox = normalizedDigitiseBlockBBox(block, page.meta);
+        let bbox = allowLarge ? capLongAnswerRegion(rawBbox) : rawBbox;
+        if (allowLarge && usedRegions.some((region) => region.page === page.page && regionsOverlap(region.bbox, rawBbox))) {
+          const available = availableLongAnswerRegion(rawBbox, usedRegions, page.page);
+          if (!available) continue;
+          bbox = available;
+        }
+        if (!usableAnswerRegion(bbox, allowLarge)) continue;
+        if (!allowLarge && usedRegions.some((region) => region.page === page.page && regionsOverlap(region.bbox, bbox))) continue;
         const area = bbox.w * bbox.h;
         const bestArea = best ? best.bbox.w * best.bbox.h : Number.POSITIVE_INFINITY;
         if (!best || score > best.score || (score === best.score && area < bestArea)) {
@@ -1085,9 +1199,11 @@ function assignAnswerRegionsFromBlocks(
         }
       }
     }
-    if (best && best.score >= 0.6 && usableAnswerRegion(best.bbox)) {
+    const minimumScore = isLongAnswer(answer) ? 0.5 : 0.6;
+    if (best && best.score >= minimumScore && usableAnswerRegion(best.bbox, isLongAnswer(answer))) {
       usedAnchors.add(best.blockKey);
       assigned.set(answer.id, { page: best.page, bbox: best.bbox });
+      usedRegions.push({ page: best.page, bbox: best.bbox });
       blockTextMatches++;
     }
   }
@@ -1100,22 +1216,33 @@ function assignAnswerRegionsFromBlocks(
     for (const page of pages) {
       for (let index = 0; index < page.lines.length; index++) {
         if (usedAnchors.has(`${page.page}:${index}`)) continue;
-        const score = scoreAnswerLine(answer, page.lines[index]);
-        const bbox = regionFromAnchor(page.lines, index, page.leftMargin);
-        if (!usableAnswerRegion(bbox)) continue;
-        if (!best || score > best.score) {
+        const candidate = candidateLineRegion(answer, page.lines, index, page.leftMargin);
+        if (!candidate) continue;
+        let candidateBbox = candidate.bbox;
+        if (isLongAnswer(answer)) {
+          const available = availableLongAnswerRegion(candidate.rawBbox, usedRegions, page.page);
+          if (!available) continue;
+          candidateBbox = available;
+        } else if (usedRegions.some((region) => region.page === page.page && regionsOverlap(region.bbox, candidateBbox))) {
+          continue;
+        }
+        const bestArea = best ? best.bbox.w * best.bbox.h : Number.POSITIVE_INFINITY;
+        const candidateArea = candidateBbox.w * candidateBbox.h;
+        if (!best || candidate.score > best.score || (candidate.score === best.score && candidateArea < bestArea)) {
           best = {
             page: page.page,
-            index,
-            score,
-            bbox,
+            index: candidate.pageIndex,
+            score: candidate.score,
+            bbox: candidateBbox,
           };
         }
       }
     }
-    if (best && best.score >= 0.45 && usableAnswerRegion(best.bbox)) {
+    if (best && best.score >= (isLongAnswer(answer) ? 0.5 : 0.45) &&
+      usableAnswerRegion(best.bbox, isLongAnswer(answer))) {
       usedAnchors.add(`${best.page}:${best.index}`);
       assigned.set(answer.id, { page: best.page, bbox: best.bbox });
+      usedRegions.push({ page: best.page, bbox: best.bbox });
       lineTextMatches++;
     }
   }
