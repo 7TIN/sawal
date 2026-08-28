@@ -9,6 +9,7 @@ export type StoredDocument = {
   fileName: string;
   mimeType: string;
   pages: Blob[];
+  originalFile?: Blob;
   createdAt: string;
 };
 
@@ -36,6 +37,10 @@ export type Question = {
   number: string;
   text: string;
   page: number;
+  subQuestions?: Question[];
+  isSub?: boolean;
+  parentNumber?: string;
+  options?: string[];
 };
 
 export type AnswerRegion = { page: number; bbox: BBox };
@@ -45,6 +50,7 @@ export type Answer = {
   label: string;
   text: string;
   regions: AnswerRegion[];
+  matchedQuestionNumber?: string;
 };
 
 export type MatchStatus = "matched" | "unanswered" | "unmatched";

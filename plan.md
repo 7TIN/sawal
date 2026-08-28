@@ -3,7 +3,50 @@
 Upload question paper + student handwritten answer sheet, extract questions/answers,
 map them, highlight exact answer regions on the sheet, grade with AI feedback.
 
-## Status: COMPLETE — all 7 phases built, lint + typecheck + build pass
+## Status: COMPLETE — all phases built; lint + typecheck + build pass
+
+## Extraction pipeline hardening (completed)
+
+- **Whole-file upload** — client stores the original file (`StoredDocument.originalFile`)
+  and streams it to `/api/extract` (previously rendered page JPEGs were re-combined and sent,
+  which broke OCR). Filenames are passed through to the providers.
+- **Question paper** → Sarvam `digitise` (`output_format: "md"`), so question text is exact.
+- **Answer sheet** → Sarvam `extract` with a JSON schema (`answers[]` with
+  `label/text/page/bbox_x/bbox_y/bbox_w/bbox_h`). Schema requires `description` on every node
+  incl. root + `items` (Sarvam rejects `SCHEMA_INVALID` otherwise).
+- **Smart question parser** (`lib/ai/parser.ts`) — detects `1.` / `1)` / `(1)` / `Q1` /
+  `Question 1` and sub-questions `1(a)` `1(b)`, `a) b) c)`, `a(1) a(2)`, roman `(i) (ii)`;
+  flattens to numbered keys for matching (`1a` ≡ `1(a)`). Strips markdown artifacts
+  (`**`, `#`, `-`, backticks) before matching one-line-at-a-time.
+- **Sarvam digitise decoding** — digitise returns one JSON string *per page*
+  (`{"page_num":N,"blocks":[{"coordinates":{x1,y1,..},"text":"..."}]}`), NOT markdown.
+  `reconstructDigitisePage` parses each page, walks `blocks/pages/elements/content`
+  containers, pulls block `text`, and sorts by `(y1,x1)` into reading order before the
+  question parser sees it. Orphan bare-number markers (`1` + next line) are glued together.
+- **MCQ option handling** — after a numbered question, up to 6 uppercase single-letter lines
+  (`A.`–`E.`) are absorbed as `question.options` (rendered in the expanded panel), so options
+  are NOT mis-read as sub-questions. Genuine `a)`/`(a)`/roman sub-parts still become subs.
+- **No silent failures** — if `questions` AND `answers` come back empty, the client shows an
+  explicit warning card with a raw-text preview and a retry button instead of hiding behind
+  the upload stage. Server logs the parsed counts + a sample of the digitised page text.
+- **Matching** (`lib/ai/mapping.ts`) — label/text includes, answer number ref detection,
+  word-overlap scoring, roman-number conversion; unmatched answers bucketed separately.
+  Answers whose label/text carry the question number get a strong direct-match bonus;
+  a **positional fallback** then fills numeric gaps between two matched neighbours'
+  regions (e.g. Q10 between Q9/Q11, Q17 between Q16/Q18) so no answered question is left
+  unresolved when OCR/transcript omits the number.
+- **UI** — expandable question rows (click → student answer + AI feedback in same panel),
+  unanswered questions shown in red, click-to-locate that auto-scrolls the sheet
+  viewer to the right page. Answer regions render as **rounded, dotted-line green boxes**
+  (no page dimming); hover shows any region, active question's boxes are emphasised.
+- **IndexedDB caching + logging** — extract/mapping/grade results are persisted and reused
+  on reload so API cost isn't repeated; Reset deletes the cached extraction + logs for a
+  fresh run. Raw `/api/extract`, `/api/grade` and mapping payloads are logged to a `logs`
+  store and viewable in an in-app "API & mapping logs" panel.
+- **Grading** — rubric-based Gemini prompt (correctness/completeness/clarity/evidence),
+  `temperature 0.3`, JSON-parse fallback to zero grades, per-question marks + verdict +
+  feedback + overall summary.
+- Sarvam `digitise` may return a ZIP (marked-text) — fallback uses `getDownloadUrl` + `fflate`.
 
 ## Decisions (final)
 
@@ -15,8 +58,8 @@ map them, highlight exact answer regions on the sheet, grade with AI feedback.
 | Server / client split | All AI/API calls in route handlers; PDF→page images client-side |
 | PDF parsing | `pdfjs-dist`, worker from `/public/pdf.worker.min.mjs` |
 | Primary extractor | Sarvam DocAI Extract (`output_format: "json"`) |
-| Secondary extractor | Gemini 2.0 Flash Lite (vision LLM) |
-| Grading | Gemini Flash Lite (marks + verdict + feedback + summary) |
+| Secondary extractor | Gemini 3.5 Flash-Lite (vision LLM) |
+| Grading | Gemini 3.5 Flash-Lite (marks + verdict + feedback + summary) |
 | Tooling | bun for install, lint, typecheck |
 | Deployment | Vercel; API keys server-side only |
 
@@ -43,6 +86,7 @@ lib/
   ai/
     types.ts            — extraction-specific types (ExtractedQuestion, ExtractedAnswer)
     provider.ts         — provider abstraction + Sarvam/Gemini adapters
+    parser.ts           — smart question/number parsing + normalization
     mapping.ts          — deterministic number normalization + question↔answer matching
 
 app/
@@ -89,8 +133,10 @@ public/
 
 - Regions stored normalized 0–1; overlay divs positioned with `%` inside `relative`
   container wrapping each page `<img>` → resolution-independent.
-- Click question → `activeId` → boxes animate in.
-- Unanswered → explicit badge, no region. Unmatched answers in their own bucket.
+- Click question → `activeId` → boxes animate in; sheet auto-scrolls to the answer page.
+- Non-active pages dim while a question is focused.
+- Unanswered → red badge + explanation. Unmatched answers in their own bucket.
+- Labels on the canvas show the matched question number (e.g. `Q1(a)`).
 
 ## Environment variables
 

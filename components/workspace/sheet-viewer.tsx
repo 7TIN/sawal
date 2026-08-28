@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import type { PageImage, BBox } from "@/lib/types";
 
-type OverlayBox = {
+export type OverlayBox = {
   id: string;
   page: number;
   bbox: BBox;
@@ -13,37 +13,62 @@ type OverlayBox = {
 type SheetViewerProps = {
   pages: PageImage[];
   overlays?: OverlayBox[];
-  activeId?: string | null;
-  currentPage?: number;
-  onPageChange?: (page: number) => void;
+  activeIds?: Set<string> | null;
+  activePage?: number | null;
 };
 
 export function SheetViewer({
   pages,
   overlays = [],
-  activeId,
-  currentPage = 0,
+  activeIds,
+  activePage,
 }: SheetViewerProps) {
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const [naturalSizes, setNaturalSizes] = useState<Record<number, { w: number; h: number }>>({});
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   useEffect(() => {
-    const el = pageRefs.current.get(currentPage);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (activePage != null) {
+      pageRefs.current.get(activePage)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  }, [currentPage]);
+  }, [activePage]);
 
-  const activeOverlays = activeId
-    ? overlays.filter((o) => o.id === activeId)
-    : [];
+  const hasActive = activeIds != null && activeIds.size > 0;
+
+  const toPct = (bbox: BBox, page: PageImage): BBox => {
+    const looksUnsized =
+      bbox.x <= 0 && bbox.y <= 0 && bbox.w <= 0 && bbox.h <= 0;
+    const looksPixels =
+      bbox.x > 1.2 || bbox.y > 1.2 || bbox.w > 1.2 || bbox.h > 1.2;
+    const nat = naturalSizes[page.index] ?? { w: page.width, h: page.height };
+
+    let x = bbox.x;
+    let y = bbox.y;
+    let w = bbox.w;
+    let h = bbox.h;
+
+    if (!looksUnsized && looksPixels && nat && nat.w > 0 && nat.h > 0) {
+      x = bbox.x / nat.w;
+      y = bbox.y / nat.h;
+      w = bbox.w / nat.w;
+      h = bbox.h / nat.h;
+    }
+
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const cx = clamp01(x);
+    const cy = clamp01(y);
+    return {
+      x: cx,
+      y: cy,
+      w: clamp01(w) - Math.max(0, cx + clamp01(w) - 1),
+      h: clamp01(h) - Math.max(0, cy + clamp01(h) - 1),
+    };
+  };
 
   return (
     <div className="flex flex-col gap-4">
       {pages.map((page) => {
-        const pageOverlays =
-          activeId
-            ? activeOverlays.filter((o) => o.page === page.index)
-            : overlays.filter((o) => o.page === page.index);
+        const pageOverlays = overlays.filter((o) => o.page === page.index);
 
         return (
           <div
@@ -51,35 +76,71 @@ export function SheetViewer({
             ref={(el) => {
               if (el) pageRefs.current.set(page.index, el);
             }}
-            className="relative inline-block w-full"
+            className="relative inline-block w-full rounded-md"
           >
             <img
               src={page.url}
               alt={`Page ${page.index + 1}`}
+              onLoad={(event) => {
+                const img = event.currentTarget;
+                if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                  setNaturalSizes((sizes) =>
+                    sizes[page.index]?.w === img.naturalWidth && sizes[page.index]?.h === img.naturalHeight
+                      ? sizes
+                      : { ...sizes, [page.index]: { w: img.naturalWidth, h: img.naturalHeight } },
+                  );
+                }
+              }}
               className="w-full rounded-md border"
             />
-            {pageOverlays.length > 0 && (
-              <div className="absolute inset-0">
-                {pageOverlays.map((overlay) => (
+            <div className="absolute inset-0">
+              {pageOverlays.map((overlay) => {
+                const isActive = hasActive && activeIds!.has(overlay.id);
+                const isHovered = hoveredId === overlay.id;
+                if (
+                  !Number.isFinite(overlay.bbox.x) ||
+                  !Number.isFinite(overlay.bbox.y) ||
+                  !Number.isFinite(overlay.bbox.w) ||
+                  !Number.isFinite(overlay.bbox.h) ||
+                  overlay.bbox.w <= 0 ||
+                  overlay.bbox.h <= 0
+                ) {
+                  return null;
+                }
+                const bbox = toPct(overlay.bbox, page);
+                const unsized = bbox.w <= 0 || bbox.h <= 0;
+                if (hasActive && !isActive) return null;
+                if (unsized) return null;
+
+                return (
                   <div
                     key={overlay.id}
-                    className="absolute rounded-sm border-2 border-blue-500 bg-blue-500/10 transition-all duration-200"
+                    onMouseEnter={() => setHoveredId(overlay.id)}
+                    onMouseLeave={() => setHoveredId(null)}
                     style={{
-                      left: `${overlay.bbox.x * 100}%`,
-                      top: `${overlay.bbox.y * 100}%`,
-                      width: `${overlay.bbox.w * 100}%`,
-                      height: `${overlay.bbox.h * 100}%`,
+                      left: `${bbox.x * 100}%`,
+                      top: `${bbox.y * 100}%`,
+                      width: `${bbox.w * 100}%`,
+                      height: `${bbox.h * 100}%`,
                     }}
+                    title={overlay.label}
+                    className={`absolute box-border rounded-lg transition-all duration-200 ${
+                      isActive
+                        ? "border-2 border-dotted border-emerald-500 bg-emerald-500/15 shadow-[0_0_0_3px_rgba(16,185,129,0.25)]"
+                        : isHovered
+                          ? "border border-dashed border-emerald-400/70 bg-emerald-500/10"
+                          : "border border-dashed border-emerald-400/40 bg-emerald-500/5"
+                    }`}
                   >
-                    {overlay.label && (
-                      <span className="absolute -top-5 left-0 whitespace-nowrap rounded bg-blue-500 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                        {overlay.label}
+                    {isActive && (
+                      <span className="absolute -top-5 left-1 whitespace-nowrap rounded-md bg-emerald-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                        {overlay.label ?? "Answer"}
                       </span>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                );
+              })}
+            </div>
             {pages.length > 1 && (
               <div className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white">
                 {page.index + 1} / {pages.length}
