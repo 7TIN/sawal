@@ -42,6 +42,17 @@ import { GradeSummary } from "./grade-summary";
 import { PipelineStepper, type PipelineStage } from "./pipeline-stepper";
 import { ExtractionProgress } from "./extraction-progress";
 import { type ProviderName } from "@/lib/ai/provider";
+import { isProd, showDebugPanels } from "@/lib/env";
+
+function FullScreenLoading({ title }: { title: string }) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+      <Sparkles className="size-14 animate-pulse text-primary" />
+      <p className="mt-8 text-4xl font-semibold tracking-tight">{title}</p>
+      <p className="mt-2 text-sm text-muted-foreground">This may take a while</p>
+    </div>
+  );
+}
 
 type SlotAction =
   | { type: "hydrate"; id: DocumentId; slot: SlotState }
@@ -625,356 +636,352 @@ export function Workspace() {
 
   return (
     <div className="mt-8">
-      <div className="mb-5 flex items-center justify-between">
-        <PipelineStepper
-          current={currentStage}
-          extracting={extraction.status === "loading"}
+      {(extraction.status === "loading" || grading.status === "loading") && (
+        <FullScreenLoading
+          title={grading.status === "loading" ? "Grading..." : "Extracting..."}
         />
-        {extraction.status === "loading" && (
-          <span className="text-xs text-muted-foreground">{extraction.stage}</span>
-        )}
-      </div>
+      )}
 
-      <div className="grid gap-5 lg:grid-cols-2">
-        {DOCUMENT_IDS.map((id) => (
-          <UploadSlot
-            key={id}
-            id={id}
-            title={SLOT_META[id].title}
-            description={SLOT_META[id].description}
-            state={slots[id]}
-            onSelect={(files) => void handleSelect(id, files)}
-            onRemove={() => handleRemove(id)}
-          />
-        ))}
-      </div>
+      {!hasExtraction && (
+        <>
+          <div className="mb-5 flex items-center justify-between">
+            <PipelineStepper
+              current={currentStage}
+              extracting={extraction.status === "loading"}
+            />
+            {extraction.status === "loading" && (
+              <span className="text-xs text-muted-foreground">{extraction.stage}</span>
+            )}
+          </div>
 
-      <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border bg-card px-5 py-4">
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-muted-foreground">
-            {bothReady
-              ? hasExtraction
-                ? "Extraction complete. Review results below."
-                : "Both documents ready. Start extraction."
-              : `Upload both documents to continue — ${readyCount}/${DOCUMENT_IDS.length} added.`}
-          </p>
-          {bothReady && !hasExtraction && (
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value as ProviderName)}
-              className="rounded-md border bg-background px-2 py-1 text-xs"
-            >
-              <option value="sarvam">Sarvam DocAI</option>
-              <option value="gemini">Gemini Flash Lite</option>
-            </select>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {hasExtraction && !hasGrading && (
-            <button
-              type="button"
-              onClick={handleReset}
-              className="flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent"
-            >
-              <RotateCcw className="size-3.5" />
-              Reset
-            </button>
-          )}
-          {!hasExtraction && (
-            <button
-              type="button"
-              disabled={!bothReady || extraction.status === "loading"}
-              onClick={handleExtract}
-              className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-            >
-              {extraction.status === "loading" ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
+          <div className="mx-auto flex w-full max-w-[789px] items-stretch justify-center gap-4 rounded-[24px] bg-white/50 p-3">
+            {DOCUMENT_IDS.map((id) => (
+              <UploadSlot
+                key={id}
+                id={id}
+                title={SLOT_META[id].title}
+                description={SLOT_META[id].description}
+                state={slots[id]}
+                onSelect={(files) => void handleSelect(id, files)}
+                onRemove={() => handleRemove(id)}
+              />
+            ))}
+          </div>
+
+          <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border bg-card px-5 py-4">
+            <div className="flex items-center gap-3">
+              {!isProd && (
+                <p className="text-sm text-muted-foreground">
+                  {bothReady
+                    ? "Both documents ready. Start mapping."
+                    : `Upload both documents to continue — ${readyCount}/${DOCUMENT_IDS.length} added.`}
+                </p>
               )}
-              Extract questions & answers
-              <ArrowRight className="size-4" />
-            </button>
-          )}
-          {hasExtraction && !hasGrading && (
-            <button
-              type="button"
-              disabled={grading.status === "loading"}
-              onClick={handleGrade}
-              className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-            >
-              {grading.status === "loading" ? (
-                <LoaderCircle className="size-4 animate-spin" />
-              ) : (
-                <Sparkles className="size-4" />
+              {bothReady && (
+                <select
+                  value={provider}
+                  onChange={(e) => setProvider(e.target.value as ProviderName)}
+                  className="rounded-md border bg-background px-2 py-1 text-xs"
+                >
+                  <option value="sarvam">Sarvam DocAI</option>
+                  <option value="gemini">Gemini Flash Lite</option>
+                </select>
               )}
-              Grade answers
-              <ArrowRight className="size-4" />
-            </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={!bothReady || extraction.status === "loading"}
+                onClick={handleExtract}
+                className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Sparkles className="size-4" />
+                Start Mapping
+                <ArrowRight className="size-4" />
+              </button>
+            </div>
+          </div>
+
+          {extraction.status === "error" && (
+            <div className="mt-5">
+              <ExtractionProgress stage="" error={extraction.error} onRetry={handleExtract} />
+            </div>
           )}
-        </div>
-      </div>
-
-      {extraction.status === "loading" && (
-        <div className="mt-5">
-          <ExtractionProgress stage={extraction.stage ?? "Processing..."} />
-        </div>
-      )}
-
-      {extraction.status === "error" && (
-        <div className="mt-5">
-          <ExtractionProgress stage="" error={extraction.error} onRetry={handleExtract} />
-        </div>
-      )}
-
-      {extractedEmpty && (
-        <div className="mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-          <h3 className="text-sm font-medium">Extraction completed, but no questions were detected</h3>
-          <p className="mt-1 text-xs opacity-80">
-            The API responded successfully, but the question paper text could not be parsed into
-            individual questions. This can happen with image-heavy or scanned papers.
-          </p>
-          {extraction.rawQuestionText?.trim() && (
-            <details className="mt-2">
-              <summary className="cursor-pointer text-xs font-medium">Show raw extracted text</summary>
-              <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-[11px] leading-5 text-muted-foreground">
-                {extraction.rawQuestionText.slice(0, 6000)}
-              </pre>
-            </details>
-          )}
-          <button
-            type="button"
-            onClick={handleExtract}
-            className="mt-3 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            Retry extraction
-          </button>
-        </div>
-      )}
-
-      {grading.status === "loading" && (
-        <div className="mt-5">
-          <ExtractionProgress stage="Grading matched answers..." />
-        </div>
-      )}
-
-      {grading.status === "error" && (
-        <div className="mt-5">
-          <ExtractionProgress stage="" error={grading.error} onRetry={handleGrade} />
-        </div>
-      )}
-
-      {hasGrading && grading.summary && (
-        <div className="mt-5">
-          <GradeSummary summary={grading.summary} onReset={handleReset} />
-        </div>
+        </>
       )}
 
       {hasExtraction && (
-        <div className="mt-5 grid gap-5 lg:grid-cols-[320px_1fr]">
-          <div className="overflow-hidden rounded-xl border bg-card">
-            <div className="border-b px-4 py-3">
-              <h3 className="text-sm font-medium">{extraction.questions.length} Questions</h3>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">
-                Click a question to locate its answer on the sheet and see feedback.
-              </p>
-            </div>
-            <div className="max-h-[700px] overflow-y-auto">
-              {extraction.questions.length === 0 ? (
-                <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                  No questions parsed. Try re-running extraction.
-                </p>
-              ) : (
-                <QuestionList
-                  questions={extraction.questions}
-                  statuses={statuses}
-                  grades={grades}
-                  answersById={answersById}
-                  activeId={activeQuestionId}
-                  onSelect={handleQuestionSelect}
-                />
-              )}
+        <div className="flex h-[calc(100vh-2rem)] flex-col">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              {extraction.questions.length} {extraction.questions.length === 1 ? "question" : "questions"} ·{" "}
+              {extraction.answers.length} {extraction.answers.length === 1 ? "answer" : "answers"}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleReset}
+                className="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+              >
+                <RotateCcw className="size-3.5" />
+                Reset
+              </button>
+              <button
+                type="button"
+                disabled={grading.status === "loading" || mapped.length === 0}
+                onClick={handleGrade}
+                className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Sparkles className="size-3.5" />
+                Grade answers
+              </button>
             </div>
           </div>
 
-          <div className="rounded-xl border bg-card p-4">
-            {degenerateRegions && (
-              <div className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
-                Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
-                regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
-                The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
+          {grading.status === "error" && (
+            <div className="mt-3">
+              <ExtractionProgress stage="" error={grading.error} onRetry={handleGrade} />
+            </div>
+          )}
+
+          {extractedEmpty && (
+            <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <h3 className="text-sm font-medium">Extraction completed, but no questions were detected</h3>
+              <p className="mt-1 text-xs opacity-80">
+                The API responded successfully, but the question paper text could not be parsed into
+                individual questions. This can happen with image-heavy or scanned papers.
+              </p>
+              {extraction.rawQuestionText?.trim() && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-xs font-medium">Show raw extracted text</summary>
+                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-[11px] leading-5 text-muted-foreground">
+                    {extraction.rawQuestionText.slice(0, 6000)}
+                  </pre>
+                </details>
+              )}
+              <button
+                type="button"
+                onClick={handleExtract}
+                className="mt-3 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                Retry extraction
+              </button>
+            </div>
+          )}
+
+          {hasGrading && grading.summary && (
+            <div className="thin-scrollbar mt-3 max-h-64 overflow-y-auto rounded-xl border bg-card">
+              <GradeSummary summary={grading.summary} onReset={handleReset} />
+            </div>
+          )}
+
+          <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+            <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
+              <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+                <h3 className="text-sm font-medium">{extraction.questions.length} Questions</h3>
+                <span className="text-[11px] text-muted-foreground">Click to locate on sheet</span>
               </div>
-            )}
-            <SheetViewer
-              pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
-              overlays={overlays}
-              activeIds={activeQuestionId ? activeAnswerIds : null}
-              activePage={activePage}
-            />
+              <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
+                {extraction.questions.length === 0 ? (
+                  <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                    No questions parsed. Try re-running mapping.
+                  </p>
+                ) : (
+                  <QuestionList
+                    questions={extraction.questions}
+                    statuses={statuses}
+                    grades={grades}
+                    answersById={answersById}
+                    activeId={activeQuestionId}
+                    onSelect={handleQuestionSelect}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
+              {showDebugPanels && degenerateRegions && (
+                <div className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
+                  Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
+                  regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
+                  The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
+                </div>
+              )}
+              <SheetViewer
+                pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
+                overlays={overlays}
+                activeIds={activeQuestionId ? activeAnswerIds : null}
+                activePage={activePage}
+              />
+            </div>
           </div>
         </div>
       )}
 
-      {hasExtraction && (() => {
-        const unmatched = mapped.filter((i) => i.status === "unmatched" && i.answer);
-        if (unmatched.length === 0) return null;
-        return (
-          <div className="mt-5 rounded-xl border bg-card p-4">
-            <h3 className="text-sm font-medium">
-              {unmatched.length} unmatched {unmatched.length === 1 ? "answer" : "answers"}
-            </h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              These answer regions could not be matched to any question.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {unmatched.map((item) => (
-                <div
-                  key={item.answer!.id}
-                  className="rounded-md border bg-secondary/50 px-2.5 py-1.5 text-xs"
-                >
-                  <span className="font-medium">{item.answer!.label}</span>
-                  <span className="ml-1.5 text-muted-foreground">
-                    (page {(item.answer!.regions[0]?.page ?? 0) + 1})
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
-      <div className="mt-5 rounded-xl border bg-card">
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => setSavedOpen((v) => !v)}
-            className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-accent/50"
-          >
-            <Database className="size-4 shrink-0 text-muted-foreground" />
-            Saved API responses (IndexedDB)
-            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {savedResponses.length}
-            </span>
-          </button>
-          {savedResponses.length > 0 && (
-            <button
-              type="button"
-              onClick={refreshSavedResponses}
-              className="mr-3 shrink-0 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-accent"
-            >
-              Refresh
-            </button>
-          )}
-        </div>
-        {savedOpen && (
-          <div className="space-y-3 border-t px-4 py-3">
-            {savedResponses.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                No saved responses yet. Run Extract questions &amp; answers once to store the raw
-                Sarvam response here, then reuse it without calling the API again.
-              </p>
-            )}
-            {savedResponses.map((record) => (
-              <div key={record.id} className="rounded-md border bg-secondary/40 p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-[11px] font-semibold text-muted-foreground">
-                    {new Date(record.savedAt).toLocaleString()} · {(record.rawBytes / 1024).toFixed(1)} KB
-                  </span>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    <button
-                      type="button"
-                      disabled={usingSaved !== null}
-                      onClick={() => void handleUseSaved(record.id)}
-                      className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-background disabled:pointer-events-none disabled:opacity-40"
-                    >
-                      {usingSaved === record.id ? (
-                        <LoaderCircle className="size-3 animate-spin" />
-                      ) : (
-                        <Sparkles className="size-3" />
-                      )}
-                      Use saved
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDownloadSaved(record.id)}
-                      className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-background"
-                    >
-                      <Download className="size-3" />
-                      Export
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteSaved(record.id)}
-                      className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-background hover:text-destructive"
-                    >
-                      <Trash2 className="size-3" />
-                      Delete
-                    </button>
-                  </div>
-                </div>
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                  Question: {record.document.questionFileName ?? "—"} · Answer sheet:{" "}
-                  {record.document.answerSheetFileName ?? "—"}
+      {showDebugPanels && (
+        <>
+          {hasExtraction && (() => {
+            const unmatched = mapped.filter((i) => i.status === "unmatched" && i.answer);
+            if (unmatched.length === 0) return null;
+            return (
+              <div className="mt-5 rounded-xl border bg-card p-4">
+                <h3 className="text-sm font-medium">
+                  {unmatched.length} unmatched {unmatched.length === 1 ? "answer" : "answers"}
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  These answer regions could not be matched to any question.
                 </p>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="mt-5 rounded-xl border bg-card">
-        <div className="flex items-center">
-          <button
-            type="button"
-            onClick={() => setLogsOpen((v) => !v)}
-            className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-accent/50"
-          >
-            <ScrollText className="size-4 shrink-0 text-muted-foreground" />
-            API & mapping logs (IndexedDB)
-            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-              {logs.length}
-            </span>
-          </button>
-          {logs.length > 0 && (
-            <button
-              type="button"
-              onClick={handleClearLogs}
-              className="mr-3 shrink-0 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-accent"
-            >
-              Clear
-            </button>
-          )}
-        </div>
-        {logsOpen && (
-          <div className="space-y-3 border-t px-4 py-3">
-            {logs.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                No logs yet. Extract or grade to record API responses here.
-              </p>
-            )}
-            {[...logs].reverse().map((log, idx) => (
-              <div key={`${log.savedAt}-${idx}`} className="rounded-md border bg-secondary/40 p-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {log.kind}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">
-                    {new Date(log.savedAt).toLocaleString()}
-                  </span>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {unmatched.map((item) => (
+                    <div
+                      key={item.answer!.id}
+                      className="rounded-md border bg-secondary/50 px-2.5 py-1.5 text-xs"
+                    >
+                      <span className="font-medium">{item.answer!.label}</span>
+                      <span className="ml-1.5 text-muted-foreground">
+                        (page {(item.answer!.regions[0]?.page ?? 0) + 1})
+                      </span>
+                    </div>
+                  ))}
                 </div>
-                <details>
-                  <summary className="mt-1 cursor-pointer text-[11px] text-muted-foreground">
-                    View payload
-                  </summary>
-                  <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-[10px] leading-4 text-muted-foreground">
-                    {JSON.stringify(log.payload, null, 2)}
-                  </pre>
-                </details>
               </div>
-            ))}
+            );
+          })()}
+
+          <div className="mt-5 rounded-xl border bg-card">
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => setSavedOpen((v) => !v)}
+                className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-accent/50"
+              >
+                <Database className="size-4 shrink-0 text-muted-foreground" />
+                Saved API responses (IndexedDB)
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {savedResponses.length}
+                </span>
+              </button>
+              {savedResponses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={refreshSavedResponses}
+                  className="mr-3 shrink-0 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-accent"
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+            {savedOpen && (
+              <div className="space-y-3 border-t px-4 py-3">
+                {savedResponses.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No saved responses yet. Run Start Mapping once to store the raw
+                    Sarvam response here, then reuse it without calling the API again.
+                  </p>
+                )}
+                {savedResponses.map((record) => (
+                  <div key={record.id} className="rounded-md border bg-secondary/40 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        {new Date(record.savedAt).toLocaleString()} · {(record.rawBytes / 1024).toFixed(1)} KB
+                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={usingSaved !== null}
+                          onClick={() => void handleUseSaved(record.id)}
+                          className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-medium text-foreground transition-colors hover:bg-background disabled:pointer-events-none disabled:opacity-40"
+                        >
+                          {usingSaved === record.id ? (
+                            <LoaderCircle className="size-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="size-3" />
+                          )}
+                          Use saved
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDownloadSaved(record.id)}
+                          className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-background"
+                        >
+                          <Download className="size-3" />
+                          Export
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteSaved(record.id)}
+                          className="flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-background hover:text-destructive"
+                        >
+                          <Trash2 className="size-3" />
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Question: {record.document.questionFileName ?? "—"} · Answer sheet:{" "}
+                      {record.document.answerSheetFileName ?? "—"}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+
+          <div className="mt-5 rounded-xl border bg-card">
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => setLogsOpen((v) => !v)}
+                className="flex min-w-0 flex-1 items-center gap-2 px-4 py-3 text-left text-sm font-medium hover:bg-accent/50"
+              >
+                <ScrollText className="size-4 shrink-0 text-muted-foreground" />
+                API & mapping logs (IndexedDB)
+                <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {logs.length}
+                </span>
+              </button>
+              {logs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleClearLogs}
+                  className="mr-3 shrink-0 rounded border px-2 py-0.5 text-[11px] font-normal text-muted-foreground hover:bg-accent"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            {logsOpen && (
+              <div className="space-y-3 border-t px-4 py-3">
+                {logs.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No logs yet. Extract or grade to record API responses here.
+                  </p>
+                )}
+                {[...logs].reverse().map((log, idx) => (
+                  <div key={`${log.savedAt}-${idx}`} className="rounded-md border bg-secondary/40 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        {log.kind}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(log.savedAt).toLocaleString()}
+                      </span>
+                    </div>
+                    <details>
+                      <summary className="mt-1 cursor-pointer text-[11px] text-muted-foreground">
+                        View payload
+                      </summary>
+                      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-background p-2 text-[10px] leading-4 text-muted-foreground">
+                        {JSON.stringify(log.payload, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

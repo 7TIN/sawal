@@ -1,4 +1,5 @@
 import { Workspace } from "@/components/workspace/workspace";
+import { isProd } from "@/lib/env";
 
 export default function Home() {
   return (
@@ -13,16 +14,18 @@ export default function Home() {
         </div>
       </header>
       <main className="mx-auto w-full max-w-6xl flex-1 px-6 pb-24 pt-10">
-        <div className="max-w-xl">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Map student answers to questions
-          </h1>
-          <p className="mt-2 text-sm leading-6 text-muted-foreground">
-            Upload the question paper and one handwritten answer sheet. Every
-            question is matched with the region of the sheet where it was
-            answered — unanswered and unmatched answers are flagged.
-          </p>
-        </div>
+        {!isProd && (
+          <div className="max-w-xl">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Map student answers to questions
+            </h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              Upload the question paper and one handwritten answer sheet. Every
+              question is matched with the region of the sheet where it was
+              answered — unanswered and unmatched answers are flagged.
+            </p>
+          </div>
+        )}
         <Workspace />
       </main>
     </div>
