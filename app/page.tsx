@@ -12,7 +12,7 @@ export default function Home() {
           </span>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-6 pb-24 pt-10">
+      <main className=" w-full mx-10 flex-1 px-6 pb-24 pt-10">
         <Workspace />
       </main>
     </div>

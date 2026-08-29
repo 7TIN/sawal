@@ -2,14 +2,11 @@
 
 import { useState } from "react";
 import {
-  CheckCircle2,
-  HelpCircle,
-  CircleDot,
-  ChevronRight,
   ChevronDown,
-  MessageSquareText,
-  Star,
+  ChevronUp,
   PenLine,
+  MessageSquareText,
+  HelpCircle,
 } from "lucide-react";
 import type { Question, Grade, MatchStatus, Answer } from "@/lib/types";
 
@@ -22,40 +19,40 @@ type QuestionListProps = {
   onSelect: (id: string) => void;
 };
 
-const STATUS_CONFIG: Record<MatchStatus, { icon: typeof CheckCircle2; color: string; label: string }> = {
-  matched: {
-    icon: CheckCircle2,
-    color: "text-emerald-600 dark:text-emerald-400",
-    label: "Answered",
-  },
-  unanswered: {
-    icon: HelpCircle,
-    color: "text-red-600 dark:text-red-400",
-    label: "Unanswered",
-  },
-  unmatched: {
-    icon: CircleDot,
-    color: "text-muted-foreground",
-    label: "Unmatched",
-  },
-};
+const getScoreStyle = (grade?: Grade, status?: MatchStatus) => {
+  if (!grade) {
+    return status === "unanswered"
+      ? {
+          background: "#FFE9E2",
+          color: "#C0350A",
+        }
+      : {
+          background: "#F6F6F6",
+          color: "#303030",
+        };
+  }
 
-const VERDICT_STYLE: Record<string, { label: string; color: string; icon: typeof Star }> = {
-  correct: {
-    label: "Correct",
-    color: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-    icon: Star,
-  },
-  partial: {
-    label: "Partial",
-    color: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-    icon: Star,
-  },
-  incorrect: {
-    label: "Incorrect",
-    color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-    icon: Star,
-  },
+  const percentage =
+    grade.maxMarks > 0 ? grade.marks / grade.maxMarks : 0;
+
+  if (percentage >= 0.8) {
+    return {
+      background: "rgba(69, 181, 41, 0.1)",
+      color: "#34AC15",
+    };
+  }
+
+  if (percentage > 0) {
+    return {
+      background: "rgba(255, 153, 0, 0.1)",
+      color: "#E3600F",
+    };
+  }
+
+  return {
+    background: "#FFE9E2",
+    color: "#C0350A",
+  };
 };
 
 function QuestionRow({
@@ -64,7 +61,9 @@ function QuestionRow({
   grade,
   answer,
   active,
+  expanded,
   onSelect,
+  onToggle,
   depth = 0,
 }: {
   q: Question;
@@ -72,116 +71,186 @@ function QuestionRow({
   grade?: Grade;
   answer?: Answer | null;
   active: boolean;
+  expanded: boolean;
   onSelect: (id: string) => void;
+  onToggle: (id: string) => void;
   depth?: number;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const config = STATUS_CONFIG[status];
-  const StatusIcon = config.icon;
-  const isOpen = active || expanded;
+  const scoreStyle = getScoreStyle(grade, status);
+
+  const handleToggle = () => {
+    onSelect(q.id);
+    onToggle(q.id);
+  };
 
   return (
     <div
-      className={`overflow-hidden rounded-lg border transition-colors ${
-        active
-          ? "border-emerald-500/50 ring-2 ring-emerald-500/20"
-          : "border-border hover:border-emerald-500/40"
-      }`}
-      style={{ marginLeft: depth > 0 ? `${depth * 14}px` : undefined }}
+      className={[
+        "w-full overflow-hidden rounded-[16px] bg-white",
+        "transition-all duration-150",
+        expanded || active
+          ? "border-2 border-[#FF5623]"
+          : "border-2 border-transparent",
+      ].join(" ")}
+      style={{
+        marginLeft: depth > 0 ? `${depth * 14}px` : undefined,
+      }}
     >
+      {/* Question header */}
       <button
         type="button"
-        onClick={() => { onSelect(q.id); setExpanded((v) => !v); }}
-        className={`flex w-full items-start gap-3 px-3 py-3 text-left transition-colors ${
-          active ? "bg-accent/50" : "hover:bg-accent/40"
-        }`}
+        onClick={handleToggle}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-4 p-3 text-left"
       >
+        {/* Question number */}
         <span
-          className={`flex size-8 shrink-0 items-center justify-center rounded-md text-xs font-bold ${
-            active
-              ? "bg-emerald-600 text-white"
-              : "bg-secondary text-secondary-foreground"
-          }`}
+          className={[
+            "flex size-8 shrink-0 items-center justify-center",
+            "rounded-full border-2 border-white",
+            "font-sans text-[20px] font-extrabold",
+            "leading-none tracking-[-0.8px] text-white",
+            "shadow-[0px_8px_8.8px_rgba(134,134,134,0.1),0px_4px_16px_rgba(67,67,67,0.1)]",
+            expanded ? "bg-[#FF5623]" : "bg-[rgba(43,43,43,0.8)]",
+          ].join(" ")}
         >
-          Q{q.number}
+          {q.number}
         </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <StatusIcon className={`size-3.5 shrink-0 ${config.color}`} />
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-              Page {q.page + 1}
-            </span>
-          </div>
-          <p className="mt-1 line-clamp-2 text-sm leading-5">{q.text}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {answer && (
-              <span className="max-w-full truncate rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
-                {answer.text || "Answered"}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="ml-2 flex shrink-0 items-center gap-2">
+
+        {/* Question */}
+        <span className="min-w-0 flex-1 font-sans text-[16px] font-normal leading-[1.4] tracking-[-0.64px] text-[#303030]">
+          {q.text}
+        </span>
+
+        {/* Score + expand */}
+        <span className="flex shrink-0 items-center gap-4">
           {grade && (
-            <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${VERDICT_STYLE[grade.verdict]?.color ?? ""}`}>
-              {grade.marks}/{grade.maxMarks}
+            <span
+              className="rounded-full px-3 py-1 font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px]"
+              style={{
+                backgroundColor: scoreStyle.background,
+                color: scoreStyle.color,
+              }}
+            >
+              {grade.marks} / {grade.maxMarks}
             </span>
           )}
-          {isOpen ? (
-            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+
+          {status === "unanswered" && !grade && (
+            <span
+              className="rounded-full px-3 py-1 font-sans text-[14px] font-bold"
+              style={{
+                backgroundColor: scoreStyle.background,
+                color: scoreStyle.color,
+              }}
+            >
+              —
+            </span>
           )}
-        </div>
+
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-[8px] bg-[#F6F6F6]">
+            {expanded ? (
+              <ChevronUp
+                className="size-4 text-[#303030]"
+                strokeWidth={2}
+              />
+            ) : (
+              <ChevronDown
+                className="size-4 text-[#303030]"
+                strokeWidth={2}
+              />
+            )}
+          </span>
+        </span>
       </button>
 
-      {isOpen && (
-        <div className="space-y-2 border-t bg-background/50 px-3 py-3">
+      {/* Expanded content */}
+      {expanded && (
+        <div className="space-y-3 px-3 pb-3">
+          {/* Unanswered */}
           {status === "unanswered" && (
-            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400">
-              <HelpCircle className="mt-0.5 size-3.5 shrink-0" />
-              <p>No matching answer found on the answer sheet.</p>
+            <div className="flex items-start gap-2 rounded-[12px] bg-[#FFE9E2] px-4 py-3 text-sm text-[#C0350A]">
+              <HelpCircle className="mt-0.5 size-4 shrink-0" />
+
+              <p className="font-sans leading-[1.4]">
+                No matching answer found on the answer sheet.
+              </p>
             </div>
           )}
 
+          {/* Options */}
           {q.options && q.options.length > 0 && (
-            <div className="grid gap-1">
-              {q.options.map((option) => (
-                <div key={option} className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50" />
-                  <span>{option}</span>
-                </div>
-              ))}
+            <div className="rounded-[16px] bg-[#F6F6F6] px-6 py-4">
+              <div className="space-y-2">
+                {q.options.map((option, index) => (
+                  <div
+                    key={option}
+                    className="flex items-start gap-3 font-sans text-sm leading-[1.4] text-[#303030]"
+                  >
+                    <span className="shrink-0 font-semibold">
+                      {String.fromCharCode(65 + index)}.
+                    </span>
+
+                    <span>{option}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
+          {/* Student answer */}
           {answer && (
-            <div className="rounded-md border px-3 py-2">
-              <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                <PenLine className="size-3" />
-                Student answer
-                {status === "matched" && (
-                  <span className="ml-auto text-[10px] text-emerald-600 dark:text-emerald-400">
-                    Located on page {(answer.regions[0]?.page ?? 0) + 1}
+            <div className="rounded-[16px] bg-[#F6F6F6] px-6 py-4">
+              <div className="flex items-center gap-2">
+                <PenLine className="size-4 text-[#303030]" />
+
+                <h3 className="font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
+                  Student Answer
+                </h3>
+
+                {status === "matched" && answer.regions?.length > 0 && (
+                  <span className="ml-auto font-sans text-xs text-[#34AC15]">
+                    Located on page{" "}
+                    {(answer.regions[0]?.page ?? 0) + 1}
                   </span>
                 )}
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-xs leading-5">{answer.text || "—"}</p>
+
+              <div className="mt-3 rounded-[12px] bg-white px-4 py-3">
+                <p className="whitespace-pre-wrap font-sans text-[14px] font-normal leading-[1.4] tracking-[-0.56px] text-[#303030]">
+                  {answer.text || "—"}
+                </p>
+              </div>
             </div>
           )}
 
+          {/* AI Feedback */}
           {grade && (
-            <div className="flex items-start gap-2 rounded-md border px-3 py-2">
-              <MessageSquareText className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-              <div>
-                <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                  AI feedback
-                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${VERDICT_STYLE[grade.verdict]?.color ?? ""}`}>
-                    {VERDICT_STYLE[grade.verdict]?.label ?? grade.verdict}
-                  </span>
-                  <span className="ml-auto text-[10px]">{grade.marks} / {grade.maxMarks} marks</span>
+            <div className="rounded-[16px] bg-[#F6F6F6] px-6 py-4">
+              <div className="flex items-start gap-2">
+                <MessageSquareText className="mt-0.5 size-4 shrink-0 text-[#303030]" />
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
+                      AI Feedback
+                    </h3>
+
+                    <span
+                      className="rounded-full px-2 py-0.5 font-sans text-xs font-bold"
+                      style={{
+                        backgroundColor: scoreStyle.background,
+                        color: scoreStyle.color,
+                      }}
+                    >
+                      {grade.marks} / {grade.maxMarks}
+                    </span>
+                  </div>
+
+                  <p className="mt-2 font-sans text-[14px] font-normal leading-[1.4] tracking-[-0.56px] text-[#303030]">
+                    {grade.feedback}
+                  </p>
                 </div>
-                <p className="mt-1 text-xs leading-5">{grade.feedback}</p>
               </div>
             </div>
           )}
@@ -199,19 +268,69 @@ export function QuestionList({
   activeId,
   onSelect,
 }: QuestionListProps) {
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(
+    () => new Set(activeId ? [activeId] : [])
+  );
+
+  const allExpanded =
+    questions.length > 0 &&
+    questions.every((q) => expandedIds.has(q.id));
+
+  const toggleQuestion = (id: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (allExpanded) {
+      setExpandedIds(new Set());
+    } else {
+      setExpandedIds(new Set(questions.map((q) => q.id)));
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-1.5 p-2">
-      {questions.map((q) => (
-        <QuestionRow
-          key={q.id}
-          q={q}
-          status={statuses[q.id] ?? "unanswered"}
-          grade={grades[q.id]}
-          answer={answersById[q.id]}
-          active={activeId === q.id}
-          onSelect={onSelect}
-        />
-      ))}
+    <div className="flex flex-col gap-4 scrollbar-none">
+      {/* Header */}
+      <div className="flex w-full items-center justify-between">
+        <h2 className="font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
+          Extracted Questions (from question paper)
+        </h2>
+
+        <button
+          type="button"
+          onClick={toggleAll}
+          className="rounded-full bg-white px-4 py-3 font-sans text-[14px] font-medium leading-[1.4] tracking-[-0.56px] text-[#181818] transition-colors hover:bg-[#F6F6F6]"
+        >
+          {allExpanded ? "Collapse All" : "Expand All"}
+        </button>
+      </div>
+
+      {/* Question list */}
+      <div className="flex flex-col gap-1 scrollbar-none">
+        {questions.map((q) => (
+          <QuestionRow
+            key={q.id}
+            q={q}
+            status={statuses[q.id] ?? "unanswered"}
+            grade={grades[q.id]}
+            answer={answersById[q.id]}
+            active={activeId === q.id}
+            expanded={expandedIds.has(q.id)}
+            onSelect={onSelect}
+            onToggle={toggleQuestion}
+          />
+        ))}
+      </div>
     </div>
   );
 }

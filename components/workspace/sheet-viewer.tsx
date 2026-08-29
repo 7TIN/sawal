@@ -15,6 +15,8 @@ type SheetViewerProps = {
   overlays?: OverlayBox[];
   activeIds?: Set<string> | null;
   activePage?: number | null;
+  zoom?: number;
+  onPageVisible?: (page: number) => void;
 };
 
 export function SheetViewer({
@@ -22,6 +24,8 @@ export function SheetViewer({
   overlays = [],
   activeIds,
   activePage,
+  zoom = 1,
+  onPageVisible,
 }: SheetViewerProps) {
   const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const [naturalSizes, setNaturalSizes] = useState<Record<number, { w: number; h: number }>>({});
@@ -32,6 +36,29 @@ export function SheetViewer({
       pageRefs.current.get(activePage)?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [activePage]);
+
+  useEffect(() => {
+    if (!onPageVisible || pages.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let best: { index: number; ratio: number } | null = null;
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const index = Number((entry.target as HTMLElement).dataset.page);
+          if (!Number.isFinite(index)) continue;
+          if (!best || entry.intersectionRatio > best.ratio) {
+            best = { index, ratio: entry.intersectionRatio };
+          }
+        }
+        if (best) onPageVisible(best.index);
+      },
+      { threshold: [0.2, 0.5, 0.8] },
+    );
+
+    pageRefs.current.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [pages, onPageVisible]);
 
   const hasActive = activeIds != null && activeIds.size > 0;
 
@@ -74,9 +101,13 @@ export function SheetViewer({
           <div
             key={page.index}
             ref={(el) => {
-              if (el) pageRefs.current.set(page.index, el);
+              if (el) {
+                el.dataset.page = String(page.index);
+                pageRefs.current.set(page.index, el);
+              }
             }}
-            className="relative inline-block w-full rounded-md"
+            className="relative inline-block rounded-md"
+            style={{ width: `${zoom * 100}%` }}
           >
             <img
               src={page.url}

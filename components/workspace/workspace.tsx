@@ -36,7 +36,7 @@ import {
   type MappedItem,
 } from "@/lib/types";
 import { UploadSlot } from "./upload-slot";
-import { SheetViewer } from "./sheet-viewer";
+import { AnswerSheetPanel } from "./answer-sheet-panel";
 import { QuestionList } from "./question-list";
 import { GradeSummary } from "./grade-summary";
 import { PipelineStepper, type PipelineStage } from "./pipeline-stepper";
@@ -803,16 +803,9 @@ export function Workspace() {
             hasGrading && grading.summary ? (
               <>
                 <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
-                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
-                    <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-                      <h3 className="text-sm font-medium">
-                        {extraction.questions.length} Questions
-                      </h3>
-                      <span className="text-[11px] text-muted-foreground">
-                        Click a question to review &amp; locate it
-                      </span>
-                    </div>
-                    <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
+                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
+
+                    <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
                       {extraction.questions.length === 0 ? (
                         <p className="px-4 py-6 text-center text-xs text-muted-foreground">
                           No questions parsed. Try re-running mapping.
@@ -830,8 +823,8 @@ export function Workspace() {
                     </div>
                   </div>
 
-                  <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
-                    <SheetViewer
+                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
+                    <AnswerSheetPanel
                       pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
                       overlays={overlays}
                       activeIds={activeQuestionId ? activeAnswerIds : null}
@@ -878,15 +871,15 @@ export function Workspace() {
                   </div>
                 </div>
 
-                <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
                   {showDebugPanels && degenerateRegions && (
-                    <div className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
+                    <div className="mx-4 mt-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
                       Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
                       regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
                       The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
                     </div>
                   )}
-                  <SheetViewer
+                  <AnswerSheetPanel
                     pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
                     overlays={overlays}
                     activeIds={activeQuestionId ? activeAnswerIds : null}
