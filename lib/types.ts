@@ -41,6 +41,7 @@ export type Question = {
   isSub?: boolean;
   parentNumber?: string;
   options?: string[];
+  maxMarks?: number;
 };
 
 export type AnswerRegion = { page: number; bbox: BBox };

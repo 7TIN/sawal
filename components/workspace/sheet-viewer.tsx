@@ -109,7 +109,7 @@ export function SheetViewer({
                 }
                 const bbox = toPct(overlay.bbox, page);
                 const unsized = bbox.w <= 0 || bbox.h <= 0;
-                if (hasActive && !isActive) return null;
+                if (!hasActive || !isActive) return null;
                 if (unsized) return null;
 
                 return (

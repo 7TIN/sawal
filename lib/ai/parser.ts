@@ -238,6 +238,26 @@ export function normalizeQuestionNumber(num: string): string {
     .trim();
 }
 
+export function extractMaxMarks(text: string): number | null {
+  if (!text) return null;
+
+  const patterns: Array<RegExp> = [
+    /(?:\(|\[)\s*(\d+(?:\.\d+)?)\s*(?:mark|marks|m)\s*(?:\)|\])/i,
+    /(\d+(?:\.\d+)?)\s*(?:mark|marks|m)\b/i,
+    /(?:\(|\[)\s*(\d+(?:\.\d+)?)\s*(?:\)|\])\s*$/,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match) {
+      const value = parseFloat(match[1]);
+      if (Number.isFinite(value) && value > 0) return value;
+    }
+  }
+
+  return null;
+}
+
 export function extractAnswerQuestionRef(text: string): string | null {
   const patterns = [
     /^answer\s+(?:to\s+)?(?:q(?:uestion)?[\s.:]*)([\d]+(?:[.\s][\d]+)*[a-z]?(?:\([a-z0-9]+\))?)\b/i,

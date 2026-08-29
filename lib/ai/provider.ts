@@ -1,6 +1,6 @@
 import type { ExtractionResult, ExtractedAnswer } from "./types";
 import type { AnswerSheetLine, AnswerSheetLayout, BBox } from "./types";
-import { parseQuestionTextFromPages } from "./parser";
+import { extractMaxMarks, parseQuestionTextFromPages } from "./parser";
 
 export type ProviderName = "sarvam" | "gemini";
 
@@ -152,15 +152,19 @@ function buildQuestionsFromDigitise(qpDigitise: string[]) {
   const qpTexts = (qpDigitise ?? []).map(reconstructDigitisePage);
   const pages = qpTexts.map((content, i) => ({ pageNumber: i, content }));
   const parsed = parseQuestionTextFromPages(pages);
-  const questions = parsed.map((q, i) => ({
-    id: `q${i + 1}`,
-    number: q.number,
-    text: q.text,
-    page: q.page,
-    isSub: q.isSub,
-    ...(q.parentNumber ? { parentNumber: q.parentNumber } : {}),
-    ...(q.options && q.options.length > 0 ? { options: q.options } : {}),
-  }));
+  const questions = parsed.map((q, i) => {
+    const maxMarks = extractMaxMarks(q.text);
+    return {
+      id: `q${i + 1}`,
+      number: q.number,
+      text: q.text,
+      page: q.page,
+      isSub: q.isSub,
+      ...(q.parentNumber ? { parentNumber: q.parentNumber } : {}),
+      ...(q.options && q.options.length > 0 ? { options: q.options } : {}),
+      ...(maxMarks ? { maxMarks } : {}),
+    };
+  });
   return { questions, qpTexts };
 }
 
@@ -291,6 +295,10 @@ Return ONLY a valid JSON object (no markdown, no explanation):
       page: q.page ?? 0,
       isSub: /\([a-z0-9]+\)|^[a-z]\)?\.|^[a-z]\(/.test(String(q.number)),
       parentNumber: extractParentNumber(String(q.number)),
+      ...(() => {
+        const maxMarks = extractMaxMarks(q.text ?? "");
+        return maxMarks ? { maxMarks } : {};
+      })(),
     }),
   );
 

@@ -2,11 +2,8 @@
 
 import { useRef, useState } from "react";
 import {
-  File,
-  FileText,
   FileUp,
   LoaderCircle,
-  ScrollText,
   TriangleAlert,
   X,
 } from "lucide-react";
@@ -26,7 +23,6 @@ const formatBytes = (bytes: number) =>
 type UploadSlotProps = {
   id: DocumentId;
   title: string;
-  description: string;
   state: SlotState;
   onSelect: (files: File[]) => void;
   onRemove: () => void;
@@ -35,7 +31,6 @@ type UploadSlotProps = {
 export function UploadSlot({
   id,
   title,
-  description,
   state,
   onSelect,
 }: UploadSlotProps) {
@@ -61,7 +56,7 @@ export function UploadSlot({
       : 0;
 
   return (
-    <section className="relative flex h-[181px] w-full max-w-[374.5px] flex-col overflow-hidden rounded-[20px] border border-dashed border-[#CECECE] bg-white px-[10px] py-[10px] shadow-none">
+    <section className="relative flex h-[181px] w-full max-w-[374.5px] flex-col overflow-hidden rounded-[20px] border-[1.5px] border-dashed border-[#CECECE] bg-white p-[10px] shadow-none">
       <input
         ref={inputRef}
         type="file"
@@ -83,6 +78,15 @@ export function UploadSlot({
       {/* Empty */}
       {state.status === "empty" && (
         <div
+          onClick={openPicker}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              openPicker();
+            }
+          }}
           onDragOver={(event) => {
             event.preventDefault();
             setDragging(true);
@@ -90,14 +94,30 @@ export function UploadSlot({
           onDragLeave={() => setDragging(false)}
           onDrop={handleDrop}
           className={[
-            "flex h-full w-full flex-col items-center justify-center rounded-[18px] border border-dashed border-transparent transition-colors",
+            "flex h-full w-full flex-col items-center justify-center rounded-[20px] border border-dashed border-transparent transition-colors",
             dragging ? "bg-[#F8F8F8]" : "bg-white",
           ].join(" ")}
         >
-          <div className="mb-3 flex size-12 items-center justify-center rounded-xl bg-[#F6F6F6] text-[#2B2B2B]">
-            <FileUp className="size-5" />
+          <div className="flex size-12 items-center justify-center rounded-lg bg-[#F3F3F3] text-[#2B2B2B]">
+            <FileUp className="size-8" />
           </div>
 
+          <div className="mt-4 flex flex-col items-center gap-0.5 text-center">
+            <p className="text-[20px] font-semibold leading-[22px] tracking-[-1.2px] text-[#303030]">
+              Upload{" "}
+              <span className="text-[#FF5623]">
+                {id === "question-paper" ? "Question Paper" : "Answer Sheet"}
+              </span>
+            </p>
+            <p className="text-[14px] font-normal leading-[22px] tracking-[-0.84px] text-[#5E5E5E]/[0.55]">
+              Max 10MB
+            </p>
+          </div>
+
+          <p className="sr-only">
+            Drag and drop a file, or use the browse files button below.
+          </p>
+          {/*
           <p className="text-center text-sm font-medium text-[#2B2B2B]">
             Drag & drop, or{" "}
             <button
@@ -112,6 +132,7 @@ export function UploadSlot({
           <p className="mt-1 text-xs text-[#5E5E5E]/80">
             PDF · PNG · JPG · WEBP
           </p>
+          */}
         </div>
       )}
 
@@ -168,7 +189,12 @@ export function UploadSlot({
 
           <div className="flex h-full flex-col items-center justify-center gap-3 px-2 py-3">
             
-            <div className="flex relative w-full max-w-[261px] items-center gap-3 rounded-xl bg-[#F6F6F6] px-4 py-3">
+            <div
+              className={[
+                "relative flex w-full items-center gap-3 rounded-xl bg-[#F6F6F6] py-3 pl-3 pr-5",
+                id === "question-paper" ? "max-w-[298px]" : "max-w-[261px]",
+              ].join(" ")}
+            >
                        <button
             type="button"
             onClick={openPicker}
@@ -178,7 +204,8 @@ export function UploadSlot({
             <X className="size-3.5" />
           </button>
 
-              <PdfIcon className="size-9 shrink-0" />
+
+                <PdfIcon className="size-9 shrink-0" />
 
               <div className="min-w-0 flex-1">
                <p className="truncate text-base font-bold leading-[1.4] tracking-[-0.04em] text-[#2B2B2B]">

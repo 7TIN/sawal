@@ -99,14 +99,12 @@ type GradingState = {
   summary?: GradingSummary;
 };
 
-const SLOT_META: Record<DocumentId, { title: string; description: string }> = {
+const SLOT_META: Record<DocumentId, { title: string }> = {
   "question-paper": {
     title: "Question paper",
-    description: "The printed exam paper. Questions are extracted in original order, including labelled sub-parts.",
   },
   "answer-sheet": {
     title: "Student answer sheet",
-    description: "One handwritten submission. Answers are located on the page so you can jump to them from any question.",
   },
 };
 
@@ -131,6 +129,8 @@ export function Workspace() {
   const [savedResponses, setSavedResponses] = useState<RawExtractionSummary[]>([]);
   const [savedOpen, setSavedOpen] = useState(false);
   const [usingSaved, setUsingSaved] = useState<string | null>(null);
+  const [gradedItems, setGradedItems] = useState<Awaited<ReturnType<typeof mapQuestionsToAnswers>>>([]);
+  const prodAutoGradedRef = useRef(false);
 
   const refreshSavedResponses = useCallback(() => {
     getRawExtractionSummaries().then(setSavedResponses).catch(() => undefined);
@@ -185,7 +185,7 @@ export function Workspace() {
           answers: Answer[];
           provider: ProviderName;
         }>("answer-sheet");
-        if (!cancelled && cached && cached.version === 21 && cached.questions.length > 0) {
+        if (!cancelled && cached && cached.version === 22 && cached.questions.length > 0) {
           setExtraction({
             status: "done",
             questions: cached.questions,
@@ -226,6 +226,8 @@ export function Workspace() {
         deleteExtraction(id).catch(() => undefined);
         setExtraction({ status: "idle", questions: [], answers: [] });
         setGrading({ status: "idle" });
+        setGradedItems([]);
+        prodAutoGradedRef.current = false;
         setActiveQuestionId(null);
       }
       try {
@@ -263,6 +265,8 @@ export function Workspace() {
       dispatchSlot({ type: "reset", id });
       setExtraction({ status: "idle", questions: [], answers: [] });
       setGrading({ status: "idle" });
+      setGradedItems([]);
+      prodAutoGradedRef.current = false;
       setActiveQuestionId(null);
     },
     [revokeUrls],
@@ -276,8 +280,7 @@ export function Workspace() {
     clearLogs().then(refreshLogs).catch(() => undefined);
   }, [refreshLogs]);
 
-  const readyCount = DOCUMENT_IDS.filter((id) => slots[id].status === "ready").length;
-  const bothReady = readyCount === DOCUMENT_IDS.length;
+  const bothReady = DOCUMENT_IDS.every((id) => slots[id].status === "ready");
   const hasExtraction = extraction.status === "done";
   const hasGrading = grading.status === "done" && grading.summary;
   const extractedEmpty =
@@ -371,14 +374,15 @@ export function Workspace() {
     const idToAnswer = new Map<string, Answer>();
     for (const a of extraction.answers) idToAnswer.set(a.id, a);
 
-    for (const item of mapped) {
+    const items = gradedItems.length > 0 ? gradedItems : mapped;
+    for (const item of items) {
       statuses[item.question.id] = item.status;
       if (item.grade) grades[item.question.id] = item.grade;
       answersById[item.question.id] = item.answer ? idToAnswer.get(item.answer.id) ?? item.answer : null;
     }
 
     return { statuses, grades, answersById };
-  }, [mapped, extraction.answers]);
+  }, [gradedItems, mapped, extraction.answers]);
 
   // When a question is clicked, find its active page to scroll to
   const activePage = useMemo(() => {
@@ -446,7 +450,7 @@ export function Workspace() {
 
       try {
         await saveExtraction("answer-sheet", {
-          version: 21,
+          version: 22,
           questions: newExtraction.questions,
           answers: newExtraction.answers,
           provider: newExtraction.provider,
@@ -524,6 +528,8 @@ export function Workspace() {
       setUsingSaved(id);
       setExtraction({ status: "loading", stage: "Rebuilding from saved response...", questions: [], answers: [] });
       setGrading({ status: "idle" });
+      setGradedItems([]);
+      prodAutoGradedRef.current = false;
       setActiveQuestionId(null);
 
       try {
@@ -595,6 +601,7 @@ export function Workspace() {
 
       const result = await response.json();
       setGrading({ status: "done", summary: result.summary });
+      setGradedItems(result.gradedItems ?? []);
 
       saveLog("grade", {
         provider: extraction.provider ?? provider,
@@ -626,6 +633,8 @@ export function Workspace() {
     clearLogs().then(refreshLogs).catch(() => undefined);
     setExtraction({ status: "idle", questions: [], answers: [] });
     setGrading({ status: "idle" });
+    setGradedItems([]);
+    prodAutoGradedRef.current = false;
     setActiveQuestionId(null);
     mappingLoggedFor.current = "";
   }, [refreshLogs]);
@@ -633,6 +642,16 @@ export function Workspace() {
   const handleQuestionSelect = useCallback((id: string) => {
     setActiveQuestionId((prev) => (prev === id ? null : id));
   }, []);
+
+  // In production, skip the review step and grade automatically once the
+  // extraction lands, so the user immediately sees the final grade result.
+  useEffect(() => {
+    if (!isProd) return;
+    if (!hasExtraction || grading.status !== "idle") return;
+    if (prodAutoGradedRef.current) return;
+    prodAutoGradedRef.current = true;
+    void handleGrade();
+  }, [hasExtraction, grading.status, handleGrade]);
 
   return (
     <div className="mt-8">
@@ -654,30 +673,36 @@ export function Workspace() {
             )}
           </div>
 
-          <div className="mx-auto flex w-full max-w-[789px] items-stretch justify-center gap-4 rounded-[24px] bg-white/50 p-3">
-            {DOCUMENT_IDS.map((id) => (
-              <UploadSlot
-                key={id}
-                id={id}
-                title={SLOT_META[id].title}
-                description={SLOT_META[id].description}
-                state={slots[id]}
-                onSelect={(files) => void handleSelect(id, files)}
-                onRemove={() => handleRemove(id)}
-              />
-            ))}
-          </div>
+          <div className="flex flex-col items-center gap-8">
+            <header className="flex flex-col items-center gap-2 text-center">
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                  Upload
+                </h1>
+                <div className="inline-flex items-center gap-2.5 rounded-lg bg-secondary px-2 py-1 text-sm font-semibold text-secondary-foreground">
+                  Question Paper &amp; Answer Sheets
+                </div>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Upload both files to get started
+              </p>
+            </header>
 
-          <div className="mt-6 flex items-center justify-between gap-4 rounded-xl border bg-card px-5 py-4">
-            <div className="flex items-center gap-3">
-              {!isProd && (
-                <p className="text-sm text-muted-foreground">
-                  {bothReady
-                    ? "Both documents ready. Start mapping."
-                    : `Upload both documents to continue — ${readyCount}/${DOCUMENT_IDS.length} added.`}
-                </p>
-              )}
-              {bothReady && (
+            <div className="flex h-[205px] w-full max-w-[789px] items-center justify-center gap-4 rounded-[24px] bg-neutral-100 p-4">
+              {DOCUMENT_IDS.map((id) => (
+                <UploadSlot
+                  key={id}
+                  id={id}
+                  title={SLOT_META[id].title}
+                  state={slots[id]}
+                  onSelect={(files) => void handleSelect(id, files)}
+                  onRemove={() => handleRemove(id)}
+                />
+              ))}
+            </div>
+
+            <footer className="flex flex-col items-center gap-3">
+              {bothReady && !isProd && (
                 <select
                   value={provider}
                   onChange={(e) => setProvider(e.target.value as ProviderName)}
@@ -687,19 +712,20 @@ export function Workspace() {
                   <option value="gemini">Gemini Flash Lite</option>
                 </select>
               )}
-            </div>
-            <div className="flex items-center gap-2">
               <button
                 type="button"
                 disabled={!bothReady || extraction.status === "loading"}
                 onClick={handleExtract}
-                className="flex h-9 shrink-0 items-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                className="inline-flex items-center gap-2 rounded-full bg-primary py-3 pl-6 pr-5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 disabled:pointer-events-none disabled:opacity-25"
               >
-                <Sparkles className="size-4" />
                 Start Mapping
-                <ArrowRight className="size-4" />
+                <ArrowRight className="size-5" />
               </button>
-            </div>
+              <p className="text-center text-sm text-muted-foreground">
+                Once both files are uploaded, you&apos;ll be able to map answers
+                with questions
+              </p>
+            </footer>
           </div>
 
           {extraction.status === "error" && (
@@ -718,23 +744,27 @@ export function Workspace() {
               {extraction.answers.length} {extraction.answers.length === 1 ? "answer" : "answers"}
             </p>
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleReset}
-                className="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
-              >
-                <RotateCcw className="size-3.5" />
-                Reset
-              </button>
-              <button
-                type="button"
-                disabled={grading.status === "loading" || mapped.length === 0}
-                onClick={handleGrade}
-                className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
-              >
-                <Sparkles className="size-3.5" />
-                Grade answers
-              </button>
+              {!isProd && (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    className="flex h-8 items-center gap-1.5 rounded-md border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
+                  >
+                    <RotateCcw className="size-3.5" />
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    disabled={grading.status === "loading" || mapped.length === 0}
+                    onClick={handleGrade}
+                    className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <Sparkles className="size-3.5" />
+                    Grade answers
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -769,52 +799,109 @@ export function Workspace() {
             </div>
           )}
 
-          {hasGrading && grading.summary && (
-            <div className="thin-scrollbar mt-3 max-h-64 overflow-y-auto rounded-xl border bg-card">
-              <GradeSummary summary={grading.summary} onReset={handleReset} />
-            </div>
-          )}
+          {isProd ? (
+            hasGrading && grading.summary ? (
+              <>
+                <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
+                    <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+                      <h3 className="text-sm font-medium">
+                        {extraction.questions.length} Questions
+                      </h3>
+                      <span className="text-[11px] text-muted-foreground">
+                        Click a question to review &amp; locate it
+                      </span>
+                    </div>
+                    <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
+                      {extraction.questions.length === 0 ? (
+                        <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                          No questions parsed. Try re-running mapping.
+                        </p>
+                      ) : (
+                        <QuestionList
+                          questions={extraction.questions}
+                          statuses={statuses}
+                          grades={grades}
+                          answersById={answersById}
+                          activeId={activeQuestionId}
+                          onSelect={handleQuestionSelect}
+                        />
+                      )}
+                    </div>
+                  </div>
 
-          <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
-            <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
-              <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-                <h3 className="text-sm font-medium">{extraction.questions.length} Questions</h3>
-                <span className="text-[11px] text-muted-foreground">Click to locate on sheet</span>
+                  <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
+                    <SheetViewer
+                      pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
+                      overlays={overlays}
+                      activeIds={activeQuestionId ? activeAnswerIds : null}
+                      activePage={activePage}
+                    />
+                  </div>
+                </div>
+                <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
+                  <GradeSummary summary={grading.summary} onReset={handleReset} />
+                </div>
+              </>
+            ) : (
+              <div className="flex min-h-0 flex-1 items-center justify-center">
+                <p className="text-sm text-muted-foreground">
+                  {extraction.questions.length === 0
+                    ? "No questions detected."
+                    : "Preparing grades…"}
+                </p>
               </div>
-              <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
-                {extraction.questions.length === 0 ? (
-                  <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                    No questions parsed. Try re-running mapping.
-                  </p>
-                ) : (
-                  <QuestionList
-                    questions={extraction.questions}
-                    statuses={statuses}
-                    grades={grades}
-                    answersById={answersById}
-                    activeId={activeQuestionId}
-                    onSelect={handleQuestionSelect}
+            )
+          ) : (
+            <>
+              <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+                <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
+                  <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
+                    <h3 className="text-sm font-medium">{extraction.questions.length} Questions</h3>
+                    <span className="text-[11px] text-muted-foreground">Click to locate on sheet</span>
+                  </div>
+                  <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
+                    {extraction.questions.length === 0 ? (
+                      <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                        No questions parsed. Try re-running mapping.
+                      </p>
+                    ) : (
+                      <QuestionList
+                        questions={extraction.questions}
+                        statuses={statuses}
+                        grades={grades}
+                        answersById={answersById}
+                        activeId={activeQuestionId}
+                        onSelect={handleQuestionSelect}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
+                  {showDebugPanels && degenerateRegions && (
+                    <div className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
+                      Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
+                      regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
+                      The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
+                    </div>
+                  )}
+                  <SheetViewer
+                    pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
+                    overlays={overlays}
+                    activeIds={activeQuestionId ? activeAnswerIds : null}
+                    activePage={activePage}
                   />
-                )}
+                </div>
               </div>
-            </div>
 
-            <div className="thin-scrollbar min-h-0 overflow-y-auto rounded-xl border bg-card p-4">
-              {showDebugPanels && degenerateRegions && (
-                <div className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
-                  Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
-                  regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
-                  The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
+              {hasGrading && grading.summary && (
+                <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
+                  <GradeSummary summary={grading.summary} onReset={handleReset} />
                 </div>
               )}
-              <SheetViewer
-                pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
-                overlays={overlays}
-                activeIds={activeQuestionId ? activeAnswerIds : null}
-                activePage={activePage}
-              />
-            </div>
-          </div>
+            </>
+          )}
         </div>
       )}
 

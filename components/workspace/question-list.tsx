@@ -119,18 +119,20 @@ function QuestionRow({
                 {answer.text || "Answered"}
               </span>
             )}
-            {grade && (
-              <span className={`rounded-md px-2 py-1 text-[11px] font-semibold ${VERDICT_STYLE[grade.verdict]?.color ?? ""}`}>
-                {grade.marks}/{grade.maxMarks}
-              </span>
-            )}
           </div>
         </div>
-        {isOpen ? (
-          <ChevronDown className="mt-1 size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight className="mt-1 size-3.5 shrink-0 text-muted-foreground/60" />
-        )}
+        <div className="ml-2 flex shrink-0 items-center gap-2">
+          {grade && (
+            <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${VERDICT_STYLE[grade.verdict]?.color ?? ""}`}>
+              {grade.marks}/{grade.maxMarks}
+            </span>
+          )}
+          {isOpen ? (
+            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground/60" />
+          )}
+        </div>
       </button>
 
       {isOpen && (
