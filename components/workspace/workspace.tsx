@@ -19,6 +19,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { parseFiles } from "@/lib/pdf";
+import { useIsMobile } from "@/lib/use-media-query";
 import {
   deleteDocument,
   getDocument,
@@ -170,7 +171,9 @@ const gradingCacheKeyFor = (
   const questionsSig = questions
     .map((q) => `${q.id}:${q.maxMarks ?? ""}`)
     .join("|");
-  const answersSig = answers.map((a) => `${a.id}:${a.regions.length}`).join("|");
+  const answersSig = answers
+    .map((a) => `${a.id}:${a.regions.length}`)
+    .join("|");
   return `v22|${providerName}|${questionsSig}::${answersSig}`;
 };
 
@@ -201,6 +204,8 @@ export function Workspace() {
     Awaited<ReturnType<typeof mapQuestionsToAnswers>>
   >([]);
   const prodAutoGradedRef = useRef(false);
+  const isMobile = useIsMobile();
+  const [mobileView, setMobileView] = useState<"questions" | "answers">("questions");
 
   const refreshSavedResponses = useCallback(() => {
     getRawExtractionSummaries()
@@ -929,6 +934,125 @@ export function Workspace() {
     void handleGrade();
   }, [hasExtraction, grading.status, handleGrade]);
 
+  const uploadView = (
+    <>
+      {!isProd && (
+        <div className="mb-5 flex items-center justify-between">
+          <PipelineStepper
+            current={currentStage}
+            extracting={extraction.status === "loading"}
+          />
+          {extraction.status === "loading" && (
+            <span className="text-xs text-muted-foreground">
+              {extraction.stage}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-col items-center gap-8">
+        <header className="flex flex-col items-center gap-2 text-center">
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+              Upload
+            </h1>
+            <div className="inline-flex items-center gap-2.5 rounded-lg bg-secondary px-2 py-1 text-sm font-semibold text-secondary-foreground">
+              Question Paper &amp; Answer Sheets
+            </div>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Upload both files to get started
+          </p>
+        </header>
+
+        <div className="flex min-h-[205px] w-full max-w-[789px] flex-col items-stretch gap-4 rounded-[24px] bg-neutral-100 p-4 sm:h-[205px] sm:flex-row sm:items-center sm:justify-center">
+          {DOCUMENT_IDS.map((id) => (
+            <UploadSlot
+              key={id}
+              id={id}
+              title={SLOT_META[id].title}
+              state={slots[id]}
+              onSelect={(files) => void handleSelect(id, files)}
+              onRemove={() => handleRemove(id)}
+            />
+          ))}
+        </div>
+
+        <footer className="flex flex-col items-center gap-3">
+          {bothReady && !isProd && (
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as ProviderName)}
+              className="rounded-md border bg-background px-2 py-1 text-xs"
+            >
+              <option value="sarvam">Sarvam DocAI</option>
+              <option value="gemini">Gemini Flash Lite</option>
+            </select>
+          )}
+          <button
+            type="button"
+            disabled={!bothReady || extraction.status === "loading"}
+            onClick={handleExtract}
+            className="inline-flex items-center gap-2 rounded-full bg-primary py-3 pl-6 pr-5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 disabled:pointer-events-none disabled:opacity-25"
+          >
+            Start Mapping
+            <ArrowRight className="size-5" />
+          </button>
+          <p className="text-center text-sm text-muted-foreground">
+            Once both files are uploaded, you&apos;ll be able to map answers
+            with questions
+          </p>
+        </footer>
+      </div>
+
+      {extraction.status === "error" && (
+        <div className="mt-5">
+          <ExtractionProgress
+            stage=""
+            error={extraction.error}
+            onRetry={handleExtract}
+          />
+        </div>
+      )}
+    </>
+  );
+
+  const questionsPanel = (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
+      <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
+        {extraction.questions.length === 0 ? (
+          <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+            No questions parsed. Try re-running mapping.
+          </p>
+        ) : (
+          <QuestionList
+            questions={extraction.questions}
+            statuses={statuses}
+            grades={grades}
+            answersById={answersById}
+            activeId={activeQuestionId}
+            onSelect={handleQuestionSelect}
+          />
+        )}
+      </div>
+    </div>
+  );
+
+  const answersPanel = (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
+      <AnswerSheetPanel
+        pages={
+          slots["answer-sheet"].status === "ready"
+            ? slots["answer-sheet"].pages
+            : []
+        }
+        overlays={overlays}
+        activeIds={activeQuestionId ? activeAnswerIds : null}
+        activePage={activePage}
+      />
+    </div>
+  );
+
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       {(extraction.status === "loading" || grading.status === "loading") && (
@@ -937,86 +1061,7 @@ export function Workspace() {
         />
       )}
 
-      {!hasExtraction && !isProd && (
-        <>
-          <div className="mb-5 flex items-center justify-between">
-            <PipelineStepper
-              current={currentStage}
-              extracting={extraction.status === "loading"}
-            />
-            {extraction.status === "loading" && (
-              <span className="text-xs text-muted-foreground">
-                {extraction.stage}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-col items-center gap-8">
-            <header className="flex flex-col items-center gap-2 text-center">
-              <div className="flex flex-wrap items-center justify-center gap-3">
-                <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                  Upload
-                </h1>
-                <div className="inline-flex items-center gap-2.5 rounded-lg bg-secondary px-2 py-1 text-sm font-semibold text-secondary-foreground">
-                  Question Paper &amp; Answer Sheets
-                </div>
-              </div>
-              <p className="text-sm text-muted-foreground">
-                Upload both files to get started
-              </p>
-            </header>
-
-            <div className="flex h-[205px] w-full max-w-[789px] items-center justify-center gap-4 rounded-[24px] bg-neutral-100 p-4">
-              {DOCUMENT_IDS.map((id) => (
-                <UploadSlot
-                  key={id}
-                  id={id}
-                  title={SLOT_META[id].title}
-                  state={slots[id]}
-                  onSelect={(files) => void handleSelect(id, files)}
-                  onRemove={() => handleRemove(id)}
-                />
-              ))}
-            </div>
-
-            <footer className="flex flex-col items-center gap-3">
-              {bothReady && !isProd && (
-                <select
-                  value={provider}
-                  onChange={(e) => setProvider(e.target.value as ProviderName)}
-                  className="rounded-md border bg-background px-2 py-1 text-xs"
-                >
-                  <option value="sarvam">Sarvam DocAI</option>
-                  <option value="gemini">Gemini Flash Lite</option>
-                </select>
-              )}
-              <button
-                type="button"
-                disabled={!bothReady || extraction.status === "loading"}
-                onClick={handleExtract}
-                className="inline-flex items-center gap-2 rounded-full bg-primary py-3 pl-6 pr-5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 disabled:pointer-events-none disabled:opacity-25"
-              >
-                Start Mapping
-                <ArrowRight className="size-5" />
-              </button>
-              <p className="text-center text-sm text-muted-foreground">
-                Once both files are uploaded, you&apos;ll be able to map answers
-                with questions
-              </p>
-            </footer>
-          </div>
-
-          {extraction.status === "error" && (
-            <div className="mt-5">
-              <ExtractionProgress
-                stage=""
-                error={extraction.error}
-                onRetry={handleExtract}
-              />
-            </div>
-          )}
-        </>
-      )}
+      {!hasExtraction && uploadView}
 
       {hasExtraction && (
         <div className="flex h-full flex-col">
@@ -1097,45 +1142,40 @@ export function Workspace() {
           {isProd ? (
             hasGrading && grading.summary ? (
               <>
-                <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
-                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
-                    <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
-                      {extraction.questions.length === 0 ? (
-                        <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-                          No questions parsed. Try re-running mapping.
-                        </p>
-                      ) : (
-                        <QuestionList
-                          questions={extraction.questions}
-                          statuses={statuses}
-                          grades={grades}
-                          answersById={answersById}
-                          activeId={activeQuestionId}
-                          onSelect={handleQuestionSelect}
-                        />
-                      )}
+                {isMobile ? (
+                  <div className="flex min-h-0 flex-1 flex-col gap-2">
+                    <div className="flex shrink-0 gap-1 rounded-xl border bg-white p-1">
+                      {(
+                        [
+                          ["questions", "Questions"],
+                          ["answers", "Answers"],
+                        ] as const
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setMobileView(value)}
+                          className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                            mobileView === value
+                              ? "bg-neutral-700 text-white"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="min-h-0 flex-1">
+                      {mobileView === "questions" && questionsPanel}
+                      {mobileView === "answers" && answersPanel}
                     </div>
                   </div>
-
-                  <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
-                    <AnswerSheetPanel
-                      pages={
-                        slots["answer-sheet"].status === "ready"
-                          ? slots["answer-sheet"].pages
-                          : []
-                      }
-                      overlays={overlays}
-                      activeIds={activeQuestionId ? activeAnswerIds : null}
-                      activePage={activePage}
-                    />
+                ) : (
+                  <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
+                    {questionsPanel}
+                    {answersPanel}
                   </div>
-                </div>
-                {/* <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
-                  <GradeSummary
-                    summary={grading.summary}
-                    onReset={handleReset}
-                  />
-                </div> */}
+                )}
               </>
             ) : (
               <div className="flex min-h-0 flex-1 items-center justify-center">

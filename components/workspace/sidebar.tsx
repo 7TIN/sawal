@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import {
-  BookOpen,
   Clipboard,
   FileText,
   GraduationCap,
@@ -16,6 +15,9 @@ import {
 type SidebarProps = {
   onExamsClick?: () => void;
   className?: string;
+  onNavigate?: () => void;
+  initialCollapsed?: boolean;
+  forceExpanded?: boolean;
 };
 
 const MENU_ITEMS = [
@@ -46,29 +48,41 @@ const MENU_ITEMS = [
   },
 ];
 
-export function Sidebar({ onExamsClick, className }: SidebarProps) {
-  const [collapsed, setCollapsed] = useState(true);
+export function Sidebar({
+  onExamsClick,
+  className,
+  onNavigate,
+  initialCollapsed = true,
+  forceExpanded = false,
+}: SidebarProps) {
+  const [collapsed, setCollapsed] = useState(initialCollapsed);
+  const isExpanded = forceExpanded || !collapsed;
 
   const handleNavClick = (disabled: boolean, onClick?: () => void) => {
     if (disabled) return;
     setCollapsed(false);
     onClick?.();
+    onNavigate?.();
   };
 
   return (
     <aside
       className={`flex h-full border shrink-0 flex-col justify-between rounded-[16px] bg-white p-2 transition-[width] ${
-        collapsed ? "w-[64px] items-center" : "w-[320px]"
+        !isExpanded
+          ? "w-[64px] items-center"
+          : forceExpanded
+            ? "w-[300px]"
+            : "w-[320px]"
       } ${className ?? ""}`}
     >
       <div
         className={`flex flex-col ${
-          collapsed ? "items-center gap-8" : "gap-[56px]"
+          !isExpanded ? "items-center gap-8" : "gap-[56px]"
         }`}
       >
         {/* Logo */}
         <div className="flex w-full items-center justify-between">
-          {collapsed ? (
+          {!isExpanded ? (
             <button
               type="button"
               onClick={() => setCollapsed(false)}
@@ -95,20 +109,22 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
                 </span>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setCollapsed(true)}
-                aria-label="Collapse sidebar"
-                className="p-1"
-              >
-                <PanelLeft className="size-5 text-[#5E5E5E]" strokeWidth={1.8} />
-              </button>
+              {!forceExpanded && (
+                <button
+                  type="button"
+                  onClick={() => setCollapsed(true)}
+                  aria-label="Collapse sidebar"
+                  className="p-1"
+                >
+                  <PanelLeft className="size-5 text-[#5E5E5E]" strokeWidth={1.8} />
+                </button>
+              )}
             </>
           )}
         </div>
 
         {/* AI Teacher's Toolkit */}
-        {!collapsed && (
+        {isExpanded && (
           <div className="flex justify-center">
             <div className="relative flex h-[42px] w-full items-center justify-center gap-2 overflow-hidden rounded-full border-4 border-[#FF7950] bg-[#272727] px-[43px] py-2 shadow-[inset_0px_-1px_3.5px_rgba(177,177,177,0.6),inset_0px_0px_34.5px_rgba(255,255,255,0.25)]">
               <Sparkles className="size-[18px] shrink-0 text-white" strokeWidth={2} />
@@ -123,7 +139,7 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
         {/* Navigation */}
         <nav
           className={`flex w-full flex-col ${
-            collapsed ? "items-center gap-3" : "gap-2"
+            !isExpanded ? "items-center gap-3" : "gap-2"
           }`}
         >
           {MENU_ITEMS.map((item) => {
@@ -131,7 +147,7 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
 
             const handleClick = () => handleNavClick(item.disabled, onExamsClick);
 
-            if (collapsed) {
+            if (!isExpanded) {
               return (
                 <button
                   key={item.label}
@@ -191,11 +207,11 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
       {/* Bottom section */}
       <div
         className={`flex flex-col ${
-          collapsed ? "items-center gap-3" : "gap-2"
+          !isExpanded ? "items-center gap-3" : "gap-2"
         }`}
       >
         {/* Settings - static */}
-        {collapsed ? (
+        {!isExpanded ? (
           <div
             aria-disabled="true"
             className="flex size-10 shrink-0 items-center justify-center rounded-[8px]"
@@ -217,7 +233,7 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
         )}
 
         {/* School */}
-        {/* {collapsed ? (
+        {/* {!isExpanded ? (
           <button
             type="button"
             onClick={() => setCollapsed(false)}

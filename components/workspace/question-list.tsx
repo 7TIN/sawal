@@ -302,14 +302,14 @@ export function QuestionList({
     <div className="flex flex-col gap-4 scrollbar-none">
       {/* Header */}
       <div className="flex w-full items-center justify-between">
-        <h2 className="font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
+        <h2 className="font-sans text-sm sm:text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
           Extracted Questions (from question paper)
         </h2>
 
         <button
           type="button"
           onClick={toggleAll}
-          className="rounded-full bg-white px-4 py-3 font-sans text-[14px] font-medium leading-[1.4] tracking-[-0.56px] text-[#181818] transition-colors hover:bg-[#F6F6F6]"
+          className="sm:rounded-full rounded-lg bg-white px-2 py-2 sm:px-4 sm:py-3 font-sans text-xs sm:text-[14px] font-medium sm:leading-[1.4] sm:tracking-[-0.56px] text-[#181818] transition-colors hover:bg-[#F6F6F6]"
         >
           {allExpanded ? "Collapse All" : "Expand All"}
         </button>

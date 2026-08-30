@@ -51,17 +51,17 @@ export function AnswerSheetPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="flex h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-6">
+      <div className="flex h-16 shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-3 sm:px-6 bg-neutral-800 text-neutral-50">
         <div className="text-sm font-semibold tracking-tight">Answer Sheet</div>
 
         <div className="flex items-center gap-2">
-          <div className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/70 px-2 py-1">
+          <div className="inline-flex items-center gap-0.75 sm:gap-1.5 rounded-lg bg-neutral-700 px-2 py-1">
             <button
               type="button"
               onClick={zoomOut}
               disabled={zoom <= ZOOM_MIN}
               aria-label="Zoom out"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              className="rounded p-1 cursor-pointer text-neutral-200 transition-colors hover:text-white disabled:pointer-events-none disabled:opacity-40"
             >
               <Minus className="size-4" />
             </button>
@@ -73,19 +73,19 @@ export function AnswerSheetPanel({
               onClick={zoomIn}
               disabled={zoom >= ZOOM_MAX}
               aria-label="Zoom in"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              className="rounded p-1 cursor-pointer text-neutral-200 transition-colors hover:text-white disabled:pointer-events-none disabled:opacity-40"
             >
               <Plus className="size-4" />
             </button>
           </div>
 
-          <div className="inline-flex items-center gap-1.5 rounded-lg bg-secondary/70 px-2 py-1">
+          <div className="inline-flex items-center sm:gap-1.5 rounded-lg bg-neutral-700 px-2 py-1">
             <button
               type="button"
               onClick={() => goToPage(visiblePage - 1)}
               disabled={pages.length === 0 || visiblePage <= 0}
               aria-label="Previous page"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              className="rounded p-1 cursor-pointer text-neutral-200 hover:text-white transition-colors disabled:pointer-events-none disabled:opacity-40"
             >
               <ChevronLeft className="size-4" />
             </button>
@@ -97,7 +97,7 @@ export function AnswerSheetPanel({
               onClick={() => goToPage(visiblePage + 1)}
               disabled={pages.length === 0 || visiblePage >= lastPage}
               aria-label="Next page"
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+              className="rounded p-1 cursor-pointer text-neutral-200 hover:text-white transition-colors disabled:pointer-events-none disabled:opacity-40"
             >
               <ChevronRight className="size-4" />
             </button>
