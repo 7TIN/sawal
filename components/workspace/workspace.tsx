@@ -1,7 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { ArrowRight, Database, Download, LoaderCircle, RotateCcw, ScrollText, Sparkles, Trash2 } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
+import {
+  ArrowRight,
+  Database,
+  Download,
+  LoaderCircle,
+  RotateCcw,
+  ScrollText,
+  Sparkles,
+  Trash2,
+} from "lucide-react";
 import { parseFiles } from "@/lib/pdf";
 import {
   deleteDocument,
@@ -49,15 +65,28 @@ function FullScreenLoading({ title }: { title: string }) {
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
       <Sparkles className="size-14 animate-pulse text-primary" />
       <p className="mt-8 text-4xl font-semibold tracking-tight">{title}</p>
-      <p className="mt-2 text-sm text-muted-foreground">This may take a while</p>
+      <p className="mt-2 text-sm text-muted-foreground">
+        This may take a while
+      </p>
     </div>
   );
 }
 
 type SlotAction =
   | { type: "hydrate"; id: DocumentId; slot: SlotState }
-  | { type: "progress"; id: DocumentId; fileName: string; done: number; total: number }
-  | { type: "ready"; id: DocumentId; document: StoredDocument; pages: PageImage[] }
+  | {
+      type: "progress";
+      id: DocumentId;
+      fileName: string;
+      done: number;
+      total: number;
+    }
+  | {
+      type: "ready";
+      id: DocumentId;
+      document: StoredDocument;
+      pages: PageImage[];
+    }
   | { type: "error"; id: DocumentId; fileName: string; message: string }
   | { type: "reset"; id: DocumentId };
 
@@ -73,11 +102,33 @@ function slotReducer(state: SlotState_, action: SlotAction): SlotState_ {
     case "hydrate":
       return { ...state, [action.id]: action.slot };
     case "ready":
-      return { ...state, [action.id]: { status: "ready", document: action.document, pages: action.pages } };
+      return {
+        ...state,
+        [action.id]: {
+          status: "ready",
+          document: action.document,
+          pages: action.pages,
+        },
+      };
     case "progress":
-      return { ...state, [action.id]: { status: "parsing", fileName: action.fileName, done: action.done, total: action.total } };
+      return {
+        ...state,
+        [action.id]: {
+          status: "parsing",
+          fileName: action.fileName,
+          done: action.done,
+          total: action.total,
+        },
+      };
     case "error":
-      return { ...state, [action.id]: { status: "error", fileName: action.fileName, message: action.message } };
+      return {
+        ...state,
+        [action.id]: {
+          status: "error",
+          fileName: action.fileName,
+          message: action.message,
+        },
+      };
     case "reset":
       return { ...state, [action.id]: { status: "empty" } };
   }
@@ -126,14 +177,20 @@ export function Workspace() {
     "answer-sheet": [],
   });
   const mappingLoggedFor = useRef<string>("");
-  const [savedResponses, setSavedResponses] = useState<RawExtractionSummary[]>([]);
+  const [savedResponses, setSavedResponses] = useState<RawExtractionSummary[]>(
+    [],
+  );
   const [savedOpen, setSavedOpen] = useState(false);
   const [usingSaved, setUsingSaved] = useState<string | null>(null);
-  const [gradedItems, setGradedItems] = useState<Awaited<ReturnType<typeof mapQuestionsToAnswers>>>([]);
+  const [gradedItems, setGradedItems] = useState<
+    Awaited<ReturnType<typeof mapQuestionsToAnswers>>
+  >([]);
   const prodAutoGradedRef = useRef(false);
 
   const refreshSavedResponses = useCallback(() => {
-    getRawExtractionSummaries().then(setSavedResponses).catch(() => undefined);
+    getRawExtractionSummaries()
+      .then(setSavedResponses)
+      .catch(() => undefined);
   }, []);
 
   const revokeUrls = useCallback((id: DocumentId) => {
@@ -142,7 +199,10 @@ export function Workspace() {
   }, []);
 
   const buildPageImages = useCallback(
-    async (id: DocumentId, pages: { blob: Blob; width?: number; height?: number }[]): Promise<PageImage[]> => {
+    async (
+      id: DocumentId,
+      pages: { blob: Blob; width?: number; height?: number }[],
+    ): Promise<PageImage[]> => {
       revokeUrls(id);
       urlsRef.current[id] = pages.map((page) => URL.createObjectURL(page.blob));
       return Promise.all(
@@ -168,9 +228,16 @@ export function Workspace() {
       try {
         const stored = await getDocument(id);
         if (!stored || cancelled || stored.pages.length === 0) return;
-        const pages = await buildPageImages(id, stored.pages.map((blob) => ({ blob })));
+        const pages = await buildPageImages(
+          id,
+          stored.pages.map((blob) => ({ blob })),
+        );
         if (cancelled) return;
-        dispatchSlot({ type: "hydrate", id, slot: { status: "ready", document: stored, pages } });
+        dispatchSlot({
+          type: "hydrate",
+          id,
+          slot: { status: "ready", document: stored, pages },
+        });
       } catch {
         // Storage unavailable
       }
@@ -185,7 +252,12 @@ export function Workspace() {
           answers: Answer[];
           provider: ProviderName;
         }>("answer-sheet");
-        if (!cancelled && cached && cached.version === 22 && cached.questions.length > 0) {
+        if (
+          !cancelled &&
+          cached &&
+          cached.version === 22 &&
+          cached.questions.length > 0
+        ) {
           setExtraction({
             status: "done",
             questions: cached.questions,
@@ -199,13 +271,17 @@ export function Workspace() {
     };
     hydrateExtraction();
 
-    getAllLogs().then((entries) => {
-      if (!cancelled) setLogs(entries);
-    }).catch(() => undefined);
+    getAllLogs()
+      .then((entries) => {
+        if (!cancelled) setLogs(entries);
+      })
+      .catch(() => undefined);
 
     refreshSavedResponses();
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [buildPageImages, refreshSavedResponses]);
 
   useEffect(() => {
@@ -219,7 +295,8 @@ export function Workspace() {
 
   const handleSelect = useCallback(
     async (id: DocumentId, files: File[]) => {
-      const fileName = files.length === 1 ? files[0].name : `${files.length} images`;
+      const fileName =
+        files.length === 1 ? files[0].name : `${files.length} images`;
       originalFilesRef.current[id] = files;
       dispatchSlot({ type: "progress", id, fileName, done: 0, total: 0 });
       if (id === "answer-sheet" || id === "question-paper") {
@@ -239,18 +316,33 @@ export function Workspace() {
           fileName,
           mimeType: files[0].type,
           pages: pages.map((page) => page.blob),
-          originalFile: files.length === 1 ? files[0] : new Blob(files, { type: "image/jpeg" }),
+          originalFile:
+            files.length === 1
+              ? files[0]
+              : new Blob(files, { type: "image/jpeg" }),
           createdAt: new Date().toISOString(),
         };
-        try { await saveDocument(stored); } catch { /* best-effort */ }
+        try {
+          await saveDocument(stored);
+        } catch {
+          /* best-effort */
+        }
         const pageImages = await buildPageImages(id, pages);
-        dispatchSlot({ type: "ready", id, document: stored, pages: pageImages });
+        dispatchSlot({
+          type: "ready",
+          id,
+          document: stored,
+          pages: pageImages,
+        });
       } catch (error) {
         dispatchSlot({
           type: "error",
           id,
           fileName,
-          message: error instanceof Error ? error.message : "Something went wrong while reading the file.",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Something went wrong while reading the file.",
         });
       }
     },
@@ -273,18 +365,24 @@ export function Workspace() {
   );
 
   const refreshLogs = useCallback(() => {
-    getAllLogs().then(setLogs).catch(() => undefined);
+    getAllLogs()
+      .then(setLogs)
+      .catch(() => undefined);
   }, []);
 
   const handleClearLogs = useCallback(() => {
-    clearLogs().then(refreshLogs).catch(() => undefined);
+    clearLogs()
+      .then(refreshLogs)
+      .catch(() => undefined);
   }, [refreshLogs]);
 
   const bothReady = DOCUMENT_IDS.every((id) => slots[id].status === "ready");
   const hasExtraction = extraction.status === "done";
   const hasGrading = grading.status === "done" && grading.summary;
   const extractedEmpty =
-    hasExtraction && extraction.questions.length === 0 && extraction.answers.length === 0;
+    hasExtraction &&
+    extraction.questions.length === 0 &&
+    extraction.answers.length === 0;
 
   const currentStage: PipelineStage = hasGrading
     ? "grade"
@@ -296,9 +394,23 @@ export function Workspace() {
 
   // Build overlays + mapped data
   const { overlays, mapped } = useMemo(() => {
-    if (!hasExtraction) return { overlays: [] as Array<{ id: string; page: number; bbox: BBox; label?: string }>, mapped: [] as Awaited<ReturnType<typeof mapQuestionsToAnswers>> };
+    if (!hasExtraction)
+      return {
+        overlays: [] as Array<{
+          id: string;
+          page: number;
+          bbox: BBox;
+          label?: string;
+        }>,
+        mapped: [] as Awaited<ReturnType<typeof mapQuestionsToAnswers>>,
+      };
 
-    const result: Array<{ id: string; page: number; bbox: BBox; label?: string }> = [];
+    const result: Array<{
+      id: string;
+      page: number;
+      bbox: BBox;
+      label?: string;
+    }> = [];
     for (const answer of extraction.answers) {
       for (const region of answer.regions) {
         if (
@@ -315,12 +427,17 @@ export function Workspace() {
           id: answer.id,
           page: region.page,
           bbox: region.bbox,
-          label: answer.matchedQuestionNumber ? `Q${answer.matchedQuestionNumber}` : answer.label,
+          label: answer.matchedQuestionNumber
+            ? `Q${answer.matchedQuestionNumber}`
+            : answer.label,
         });
       }
     }
 
-    return { overlays: result, mapped: mapQuestionsToAnswers(extraction.questions, extraction.answers) };
+    return {
+      overlays: result,
+      mapped: mapQuestionsToAnswers(extraction.questions, extraction.answers),
+    };
   }, [extraction, hasExtraction]);
 
   // Ids of the answer regions belonging to the currently active question
@@ -340,11 +457,21 @@ export function Workspace() {
   const degenerateRegions = useMemo(() => {
     if (overlays.length < 2) return null;
     const sigs = new Set(
-      overlays.map((o) => `${Math.round((o.bbox.x ?? 0) * 16)},${Math.round((o.bbox.y ?? 0) * 16)},${o.page}`),
+      overlays.map(
+        (o) =>
+          `${Math.round((o.bbox.x ?? 0) * 16)},${Math.round((o.bbox.y ?? 0) * 16)},${o.page}`,
+      ),
     );
     if (sigs.size >= 3) return null;
     const first = overlays[0].bbox;
-    return { x: first.x, y: first.y, w: first.w, h: first.h, count: overlays.length, unique: sigs.size };
+    return {
+      x: first.x,
+      y: first.y,
+      w: first.w,
+      h: first.h,
+      count: overlays.length,
+      unique: sigs.size,
+    };
   }, [overlays]);
 
   // Persist the mapping result once per extraction, along with fresh answersById/status data
@@ -362,10 +489,26 @@ export function Workspace() {
       matchedAnswerLabel: item.answer?.label ?? null,
       answerPage: item.answer?.regions[0]?.page ?? null,
     }));
-    saveLog("mapping", { questionsCount: extraction.questions.length, answersCount: extraction.answers.length, items: mappedSummary, answers: extraction.answers.map((a) => ({ id: a.id, label: a.label, text: a.text.slice(0, 120), regions: a.regions })) })
+    saveLog("mapping", {
+      questionsCount: extraction.questions.length,
+      answersCount: extraction.answers.length,
+      items: mappedSummary,
+      answers: extraction.answers.map((a) => ({
+        id: a.id,
+        label: a.label,
+        text: a.text.slice(0, 120),
+        regions: a.regions,
+      })),
+    })
       .then(refreshLogs)
       .catch(() => undefined);
-  }, [hasExtraction, mapped, extraction.questions.length, extraction.answers, refreshLogs]);
+  }, [
+    hasExtraction,
+    mapped,
+    extraction.questions.length,
+    extraction.answers,
+    refreshLogs,
+  ]);
 
   const { statuses, grades, answersById } = useMemo(() => {
     const statuses: Record<string, MatchStatus> = {};
@@ -378,7 +521,9 @@ export function Workspace() {
     for (const item of items) {
       statuses[item.question.id] = item.status;
       if (item.grade) grades[item.question.id] = item.grade;
-      answersById[item.question.id] = item.answer ? idToAnswer.get(item.answer.id) ?? item.answer : null;
+      answersById[item.question.id] = item.answer
+        ? (idToAnswer.get(item.answer.id) ?? item.answer)
+        : null;
     }
 
     return { statuses, grades, answersById };
@@ -387,25 +532,36 @@ export function Workspace() {
   // When a question is clicked, find its active page to scroll to
   const activePage = useMemo(() => {
     if (!activeQuestionId || !hasExtraction) return null;
-    const item = mapped.find((i) => i.question.id === activeQuestionId && i.answer);
+    const item = mapped.find(
+      (i) => i.question.id === activeQuestionId && i.answer,
+    );
     return item?.answer?.regions[0]?.page ?? null;
   }, [activeQuestionId, hasExtraction, mapped]);
 
-  const getOriginalFile = useCallback((id: DocumentId): Blob | null => {
-    const slot = slots[id];
-    if (slot.status !== "ready") return null;
-    return slot.document.originalFile ?? null;
-  }, [slots]);
+  const getOriginalFile = useCallback(
+    (id: DocumentId): Blob | null => {
+      const slot = slots[id];
+      if (slot.status !== "ready") return null;
+      return slot.document.originalFile ?? null;
+    },
+    [slots],
+  );
 
   const applyExtractionResult = useCallback(
-    async (result: {
-      answersByPage?: unknown;
-      questions?: unknown;
-      rawQuestionText?: string;
-      answerLayout?: unknown;
-      provider?: string;
-    }, source: "live" | "offline") => {
-      const answersByPage = (result.answersByPage ?? {}) as Record<string, unknown>;
+    async (
+      result: {
+        answersByPage?: unknown;
+        questions?: unknown;
+        rawQuestionText?: string;
+        answerLayout?: unknown;
+        provider?: string;
+      },
+      source: "live" | "offline",
+    ) => {
+      const answersByPage = (result.answersByPage ?? {}) as Record<
+        string,
+        unknown
+      >;
       const flatAnswers: Answer[] = [];
       for (const answersArr of Object.values(answersByPage)) {
         if (!Array.isArray(answersArr)) continue;
@@ -421,7 +577,10 @@ export function Workspace() {
 
       const newExtraction: ExtractionState = {
         status: "done",
-        questions: (Array.isArray(result.questions) ? result.questions : []).map((q: Question) => q),
+        questions: (Array.isArray(result.questions)
+          ? result.questions
+          : []
+        ).map((q: Question) => q),
         answers: flatAnswers,
         provider: (result.provider ?? provider) as ProviderName,
         rawQuestionText: result.rawQuestionText,
@@ -435,13 +594,26 @@ export function Workspace() {
         source,
         questionsCount: newExtraction.questions.length,
         answersCount: newExtraction.answers.length,
-        answerPages: flatAnswers.reduce((acc, a) => {
-          const p = a.regions[0]?.page ?? 0;
-          acc[p] = (acc[p] ?? 0) + 1;
-          return acc;
-        }, {} as Record<number, number>),
-        questions: newExtraction.questions.map((q) => ({ id: q.id, number: q.number, text: q.text.slice(0, 150), options: q.options })),
-        answers: flatAnswers.map((a) => ({ id: a.id, label: a.label, text: a.text.slice(0, 400), regions: a.regions })),
+        answerPages: flatAnswers.reduce(
+          (acc, a) => {
+            const p = a.regions[0]?.page ?? 0;
+            acc[p] = (acc[p] ?? 0) + 1;
+            return acc;
+          },
+          {} as Record<number, number>,
+        ),
+        questions: newExtraction.questions.map((q) => ({
+          id: q.id,
+          number: q.number,
+          text: q.text.slice(0, 150),
+          options: q.options,
+        })),
+        answers: flatAnswers.map((a) => ({
+          id: a.id,
+          label: a.label,
+          text: a.text.slice(0, 400),
+          regions: a.regions,
+        })),
         rawQuestionText: newExtraction.rawQuestionText,
         answerLayout: result.answerLayout ?? [],
       })
@@ -455,7 +627,9 @@ export function Workspace() {
           answers: newExtraction.answers,
           provider: newExtraction.provider,
         });
-      } catch { /* best-effort */ }
+      } catch {
+        /* best-effort */
+      }
 
       return newExtraction;
     },
@@ -465,21 +639,35 @@ export function Workspace() {
   const handleExtract = useCallback(async () => {
     if (!bothReady) return;
 
-    setExtraction({ status: "loading", stage: "Uploading documents...", questions: [], answers: [] });
+    setExtraction({
+      status: "loading",
+      stage: "Uploading documents...",
+      questions: [],
+      answers: [],
+    });
     setGrading({ status: "idle" });
     setActiveQuestionId(null);
 
     try {
       const qpFile = getOriginalFile("question-paper");
       const asFile = getOriginalFile("answer-sheet");
-      if (!qpFile || !asFile) throw new Error("Original documents are not available. Please re-upload.");
+      if (!qpFile || !asFile)
+        throw new Error(
+          "Original documents are not available. Please re-upload.",
+        );
 
       const qpSlot = slots["question-paper"];
       const asSlot = slots["answer-sheet"];
 
       const formData = new FormData();
-      const qpName = qpSlot.status === "ready" ? qpSlot.document.fileName : "question-paper.pdf";
-      const asName = asSlot.status === "ready" ? asSlot.document.fileName : "answer-sheet.pdf";
+      const qpName =
+        qpSlot.status === "ready"
+          ? qpSlot.document.fileName
+          : "question-paper.pdf";
+      const asName =
+        asSlot.status === "ready"
+          ? asSlot.document.fileName
+          : "answer-sheet.pdf";
       formData.append("questionPaper", qpFile, qpName);
       formData.append("answerSheet", asFile, asName);
       formData.append("provider", provider);
@@ -509,7 +697,9 @@ export function Workspace() {
             raw: rawData,
           });
           refreshSavedResponses();
-        } catch { /* best-effort */ }
+        } catch {
+          /* best-effort */
+        }
       }
     } catch (error) {
       setExtraction((prev) => ({
@@ -518,7 +708,14 @@ export function Workspace() {
         error: error instanceof Error ? error.message : "Extraction failed",
       }));
     }
-  }, [bothReady, slots, provider, getOriginalFile, refreshSavedResponses, applyExtractionResult]);
+  }, [
+    bothReady,
+    slots,
+    provider,
+    getOriginalFile,
+    refreshSavedResponses,
+    applyExtractionResult,
+  ]);
 
   const handleUseSaved = useCallback(
     async (id: string) => {
@@ -526,7 +723,12 @@ export function Workspace() {
       if (!record) return;
 
       setUsingSaved(id);
-      setExtraction({ status: "loading", stage: "Rebuilding from saved response...", questions: [], answers: [] });
+      setExtraction({
+        status: "loading",
+        stage: "Rebuilding from saved response...",
+        questions: [],
+        answers: [],
+      });
       setGrading({ status: "idle" });
       setGradedItems([]);
       prodAutoGradedRef.current = false;
@@ -541,7 +743,9 @@ export function Workspace() {
 
         if (!response.ok) {
           const body = await response.json().catch(() => ({}));
-          throw new Error(body.error ?? `Offline extraction failed (${response.status})`);
+          throw new Error(
+            body.error ?? `Offline extraction failed (${response.status})`,
+          );
         }
 
         const result = await response.json();
@@ -550,7 +754,10 @@ export function Workspace() {
         setExtraction((prev) => ({
           ...prev,
           status: "error",
-          error: error instanceof Error ? error.message : "Offline extraction failed",
+          error:
+            error instanceof Error
+              ? error.message
+              : "Offline extraction failed",
         }));
       } finally {
         setUsingSaved(null);
@@ -562,7 +769,9 @@ export function Workspace() {
   const handleDownloadSaved = useCallback(async (id: string) => {
     const record = await getRawExtraction(id);
     if (!record) return;
-    const blob = new Blob([JSON.stringify(record.raw, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(record.raw, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -580,7 +789,12 @@ export function Workspace() {
   );
 
   const handleGrade = useCallback(async () => {
-    if (!hasExtraction || extraction.questions.length === 0 || mapped.length === 0) return;
+    if (
+      !hasExtraction ||
+      extraction.questions.length === 0 ||
+      mapped.length === 0
+    )
+      return;
 
     setGrading({ status: "loading" });
 
@@ -605,7 +819,8 @@ export function Workspace() {
 
       saveLog("grade", {
         provider: extraction.provider ?? provider,
-        gradedCount: result.gradedItems?.filter((i: MappedItem) => i.grade).length ?? 0,
+        gradedCount:
+          result.gradedItems?.filter((i: MappedItem) => i.grade).length ?? 0,
         summary: result.summary,
         grades: (result.gradedItems ?? []).map((i: MappedItem) => ({
           questionId: i.question.id,
@@ -630,7 +845,9 @@ export function Workspace() {
 
   const handleReset = useCallback(() => {
     deleteExtraction("answer-sheet").catch(() => undefined);
-    clearLogs().then(refreshLogs).catch(() => undefined);
+    clearLogs()
+      .then(refreshLogs)
+      .catch(() => undefined);
     setExtraction({ status: "idle", questions: [], answers: [] });
     setGrading({ status: "idle" });
     setGradedItems([]);
@@ -654,7 +871,7 @@ export function Workspace() {
   }, [hasExtraction, grading.status, handleGrade]);
 
   return (
-    <div className="mt-8">
+    <div className="">
       {(extraction.status === "loading" || grading.status === "loading") && (
         <FullScreenLoading
           title={grading.status === "loading" ? "Grading..." : "Extracting..."}
@@ -669,7 +886,9 @@ export function Workspace() {
               extracting={extraction.status === "loading"}
             />
             {extraction.status === "loading" && (
-              <span className="text-xs text-muted-foreground">{extraction.stage}</span>
+              <span className="text-xs text-muted-foreground">
+                {extraction.stage}
+              </span>
             )}
           </div>
 
@@ -730,7 +949,11 @@ export function Workspace() {
 
           {extraction.status === "error" && (
             <div className="mt-5">
-              <ExtractionProgress stage="" error={extraction.error} onRetry={handleExtract} />
+              <ExtractionProgress
+                stage=""
+                error={extraction.error}
+                onRetry={handleExtract}
+              />
             </div>
           )}
         </>
@@ -739,10 +962,12 @@ export function Workspace() {
       {hasExtraction && (
         <div className="flex h-[calc(100vh-2rem)] flex-col">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">
-              {extraction.questions.length} {extraction.questions.length === 1 ? "question" : "questions"} ·{" "}
-              {extraction.answers.length} {extraction.answers.length === 1 ? "answer" : "answers"}
-            </p>
+            {/* <p className="text-sm text-muted-foreground">
+              {extraction.questions.length}{" "}
+              {extraction.questions.length === 1 ? "question" : "questions"} ·{" "}
+              {extraction.answers.length}{" "}
+              {extraction.answers.length === 1 ? "answer" : "answers"}
+            </p> */}
             <div className="flex items-center gap-2">
               {!isProd && (
                 <>
@@ -756,7 +981,9 @@ export function Workspace() {
                   </button>
                   <button
                     type="button"
-                    disabled={grading.status === "loading" || mapped.length === 0}
+                    disabled={
+                      grading.status === "loading" || mapped.length === 0
+                    }
                     onClick={handleGrade}
                     className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                   >
@@ -770,20 +997,29 @@ export function Workspace() {
 
           {grading.status === "error" && (
             <div className="mt-3">
-              <ExtractionProgress stage="" error={grading.error} onRetry={handleGrade} />
+              <ExtractionProgress
+                stage=""
+                error={grading.error}
+                onRetry={handleGrade}
+              />
             </div>
           )}
 
           {extractedEmpty && (
             <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
-              <h3 className="text-sm font-medium">Extraction completed, but no questions were detected</h3>
+              <h3 className="text-sm font-medium">
+                Extraction completed, but no questions were detected
+              </h3>
               <p className="mt-1 text-xs opacity-80">
-                The API responded successfully, but the question paper text could not be parsed into
-                individual questions. This can happen with image-heavy or scanned papers.
+                The API responded successfully, but the question paper text
+                could not be parsed into individual questions. This can happen
+                with image-heavy or scanned papers.
               </p>
               {extraction.rawQuestionText?.trim() && (
                 <details className="mt-2">
-                  <summary className="cursor-pointer text-xs font-medium">Show raw extracted text</summary>
+                  <summary className="cursor-pointer text-xs font-medium">
+                    Show raw extracted text
+                  </summary>
                   <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background p-3 text-[11px] leading-5 text-muted-foreground">
                     {extraction.rawQuestionText.slice(0, 6000)}
                   </pre>
@@ -802,9 +1038,8 @@ export function Workspace() {
           {isProd ? (
             hasGrading && grading.summary ? (
               <>
-                <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+                <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[45%_1fr]">
                   <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
-
                     <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
                       {extraction.questions.length === 0 ? (
                         <p className="px-4 py-6 text-center text-xs text-muted-foreground">
@@ -825,16 +1060,23 @@ export function Workspace() {
 
                   <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
                     <AnswerSheetPanel
-                      pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
+                      pages={
+                        slots["answer-sheet"].status === "ready"
+                          ? slots["answer-sheet"].pages
+                          : []
+                      }
                       overlays={overlays}
                       activeIds={activeQuestionId ? activeAnswerIds : null}
                       activePage={activePage}
                     />
                   </div>
                 </div>
-                <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
-                  <GradeSummary summary={grading.summary} onReset={handleReset} />
-                </div>
+                {/* <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
+                  <GradeSummary
+                    summary={grading.summary}
+                    onReset={handleReset}
+                  />
+                </div> */}
               </>
             ) : (
               <div className="flex min-h-0 flex-1 items-center justify-center">
@@ -847,11 +1089,15 @@ export function Workspace() {
             )
           ) : (
             <>
-              <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(260px,360px)_1fr]">
+              <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[45%_1fr]">
                 <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
                   <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
-                    <h3 className="text-sm font-medium">{extraction.questions.length} Questions</h3>
-                    <span className="text-[11px] text-muted-foreground">Click to locate on sheet</span>
+                    <h3 className="text-sm font-medium">
+                      {extraction.questions.length} Questions
+                    </h3>
+                    <span className="text-[11px] text-muted-foreground">
+                      Click to locate on sheet
+                    </span>
                   </div>
                   <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">
                     {extraction.questions.length === 0 ? (
@@ -874,13 +1120,21 @@ export function Workspace() {
                 <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
                   {showDebugPanels && degenerateRegions && (
                     <div className="mx-4 mt-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-4 text-amber-600">
-                      Warning: the extract API returned near-identical coordinates for all {degenerateRegions.count} answer
-                      regions (e.g. x={degenerateRegions.x}, y={degenerateRegions.y}, w={degenerateRegions.w}, h={degenerateRegions.h}).
-                      The boxes are drawn from these values, so they likely overlap. Check the extract log for raw bbox values.
+                      Warning: the extract API returned near-identical
+                      coordinates for all {degenerateRegions.count} answer
+                      regions (e.g. x={degenerateRegions.x}, y=
+                      {degenerateRegions.y}, w={degenerateRegions.w}, h=
+                      {degenerateRegions.h}). The boxes are drawn from these
+                      values, so they likely overlap. Check the extract log for
+                      raw bbox values.
                     </div>
                   )}
                   <AnswerSheetPanel
-                    pages={slots["answer-sheet"].status === "ready" ? slots["answer-sheet"].pages : []}
+                    pages={
+                      slots["answer-sheet"].status === "ready"
+                        ? slots["answer-sheet"].pages
+                        : []
+                    }
                     overlays={overlays}
                     activeIds={activeQuestionId ? activeAnswerIds : null}
                     activePage={activePage}
@@ -890,7 +1144,10 @@ export function Workspace() {
 
               {hasGrading && grading.summary && (
                 <div className="thin-scrollbar mt-4 flex-none overflow-y-auto rounded-xl border bg-card">
-                  <GradeSummary summary={grading.summary} onReset={handleReset} />
+                  <GradeSummary
+                    summary={grading.summary}
+                    onReset={handleReset}
+                  />
                 </div>
               )}
             </>
@@ -900,33 +1157,39 @@ export function Workspace() {
 
       {showDebugPanels && (
         <>
-          {hasExtraction && (() => {
-            const unmatched = mapped.filter((i) => i.status === "unmatched" && i.answer);
-            if (unmatched.length === 0) return null;
-            return (
-              <div className="mt-5 rounded-xl border bg-card p-4">
-                <h3 className="text-sm font-medium">
-                  {unmatched.length} unmatched {unmatched.length === 1 ? "answer" : "answers"}
-                </h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  These answer regions could not be matched to any question.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {unmatched.map((item) => (
-                    <div
-                      key={item.answer!.id}
-                      className="rounded-md border bg-secondary/50 px-2.5 py-1.5 text-xs"
-                    >
-                      <span className="font-medium">{item.answer!.label}</span>
-                      <span className="ml-1.5 text-muted-foreground">
-                        (page {(item.answer!.regions[0]?.page ?? 0) + 1})
-                      </span>
-                    </div>
-                  ))}
+          {hasExtraction &&
+            (() => {
+              const unmatched = mapped.filter(
+                (i) => i.status === "unmatched" && i.answer,
+              );
+              if (unmatched.length === 0) return null;
+              return (
+                <div className="mt-5 rounded-xl border bg-card p-4">
+                  <h3 className="text-sm font-medium">
+                    {unmatched.length} unmatched{" "}
+                    {unmatched.length === 1 ? "answer" : "answers"}
+                  </h3>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    These answer regions could not be matched to any question.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {unmatched.map((item) => (
+                      <div
+                        key={item.answer!.id}
+                        className="rounded-md border bg-secondary/50 px-2.5 py-1.5 text-xs"
+                      >
+                        <span className="font-medium">
+                          {item.answer!.label}
+                        </span>
+                        <span className="ml-1.5 text-muted-foreground">
+                          (page {(item.answer!.regions[0]?.page ?? 0) + 1})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
           <div className="mt-5 rounded-xl border bg-card">
             <div className="flex items-center">
@@ -955,15 +1218,20 @@ export function Workspace() {
               <div className="space-y-3 border-t px-4 py-3">
                 {savedResponses.length === 0 && (
                   <p className="text-xs text-muted-foreground">
-                    No saved responses yet. Run Start Mapping once to store the raw
-                    Sarvam response here, then reuse it without calling the API again.
+                    No saved responses yet. Run Start Mapping once to store the
+                    raw Sarvam response here, then reuse it without calling the
+                    API again.
                   </p>
                 )}
                 {savedResponses.map((record) => (
-                  <div key={record.id} className="rounded-md border bg-secondary/40 p-3">
+                  <div
+                    key={record.id}
+                    className="rounded-md border bg-secondary/40 p-3"
+                  >
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-[11px] font-semibold text-muted-foreground">
-                        {new Date(record.savedAt).toLocaleString()} · {(record.rawBytes / 1024).toFixed(1)} KB
+                        {new Date(record.savedAt).toLocaleString()} ·{" "}
+                        {(record.rawBytes / 1024).toFixed(1)} KB
                       </span>
                       <div className="flex shrink-0 items-center gap-1.5">
                         <button
@@ -998,8 +1266,8 @@ export function Workspace() {
                       </div>
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Question: {record.document.questionFileName ?? "—"} · Answer sheet:{" "}
-                      {record.document.answerSheetFileName ?? "—"}
+                      Question: {record.document.questionFileName ?? "—"} ·
+                      Answer sheet: {record.document.answerSheetFileName ?? "—"}
                     </p>
                   </div>
                 ))}
@@ -1038,7 +1306,10 @@ export function Workspace() {
                   </p>
                 )}
                 {[...logs].reverse().map((log, idx) => (
-                  <div key={`${log.savedAt}-${idx}`} className="rounded-md border bg-secondary/40 p-3">
+                  <div
+                    key={`${log.savedAt}-${idx}`}
+                    className="rounded-md border bg-secondary/40 p-3"
+                  >
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                         {log.kind}

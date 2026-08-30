@@ -316,7 +316,7 @@ export function QuestionList({
       </div>
 
       {/* Question list */}
-      <div className="flex flex-col gap-1 scrollbar-none">
+      <div className="flex flex-col gap-2 scrollbar-none">
         {questions.map((q) => (
           <QuestionRow
             key={q.id}
