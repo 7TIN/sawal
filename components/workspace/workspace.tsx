@@ -39,6 +39,9 @@ import {
   deleteCachedGrading,
   savePipelineProgress,
   clearPipelineProgress,
+  saveProject,
+  getLatestProject,
+  deleteProject,
   type ApiLog,
   type RawExtractionSummary,
 } from "@/lib/storage";
@@ -165,19 +168,10 @@ const SLOT_META: Record<DocumentId, { title: string }> = {
   },
 };
 
-const gradingCacheKeyFor = (
-  questions: Question[],
-  answers: Answer[],
-  providerName: string,
-) => {
-  const questionsSig = questions
-    .map((q) => `${q.id}:${q.maxMarks ?? ""}`)
-    .join("|");
-  const answersSig = answers
-    .map((a) => `${a.id}:${a.regions.length}`)
-    .join("|");
-  return `v22|${providerName}|${questionsSig}::${answersSig}`;
-};
+const createProjectId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 
 export function Workspace() {
   const [slots, dispatchSlot] = useReducer(slotReducer, initialSlots);
@@ -207,6 +201,7 @@ export function Workspace() {
   >([]);
   const autoGradedRef = useRef(false);
   const hydrationDoneRef = useRef(false);
+  const projectIdRef = useRef<string | null>(null);
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<"questions" | "answers">("questions");
 
@@ -244,60 +239,58 @@ export function Workspace() {
     [revokeUrls],
   );
 
-  // Hydrate from IndexedDB on mount
+  // Hydrate from IndexedDB on mount: resolve the latest project and restore
+  // its documents, extraction and grading so the user is pushed straight back
+  // to the most final completed step.
   useEffect(() => {
     let cancelled = false;
-    const hydrate = async (id: DocumentId) => {
-      try {
-        const stored = await getDocument(id);
-        if (!stored || cancelled || stored.pages.length === 0) return;
-        const pages = await buildPageImages(
-          id,
-          stored.pages.map((blob) => ({ blob })),
-        );
-        if (cancelled) return;
-        dispatchSlot({
-          type: "hydrate",
-          id,
-          slot: { status: "ready", document: stored, pages },
-        });
-      } catch {
-        // Storage unavailable
-      }
-    };
-    DOCUMENT_IDS.forEach(hydrate);
 
-    const hydratePipeline = async () => {
+    const hydrateProject = async () => {
       try {
-        const cached = await getExtraction<{
-          version?: number;
-          questions: Question[];
-          answers: Answer[];
-          provider: ProviderName;
-        }>("answer-sheet");
-        if (
-          !cancelled &&
-          cached &&
-          cached.version === 22 &&
-          cached.questions.length > 0
-        ) {
-          setExtraction({
-            status: "done",
-            questions: cached.questions,
-            answers: cached.answers,
-            provider: cached.provider,
-          });
-          const cachedGrading = await getCachedGrading(
-            gradingCacheKeyFor(
-              cached.questions,
-              cached.answers,
-              cached.provider ?? provider,
-            ),
-          );
-          if (!cancelled && cachedGrading) {
-            setGrading({ status: "done", summary: cachedGrading.summary });
-            setGradedItems(cachedGrading.gradedItems);
-            autoGradedRef.current = true;
+        const latest = await getLatestProject();
+        if (!cancelled && latest) {
+          projectIdRef.current = latest.id;
+
+          for (const id of DOCUMENT_IDS) {
+            const stored = await getDocument(latest.id, id);
+            if (!stored || cancelled || stored.pages.length === 0) continue;
+            const pages = await buildPageImages(
+              id,
+              stored.pages.map((blob) => ({ blob })),
+            );
+            if (cancelled) return;
+            dispatchSlot({
+              type: "hydrate",
+              id,
+              slot: { status: "ready", document: stored, pages },
+            });
+          }
+          if (cancelled) return;
+
+          const cached = await getExtraction<{
+            version?: number;
+            questions: Question[];
+            answers: Answer[];
+            provider: ProviderName;
+          }>(latest.id, "answer-sheet");
+          if (
+            !cancelled &&
+            cached &&
+            cached.version === 22 &&
+            cached.questions.length > 0
+          ) {
+            setExtraction({
+              status: "done",
+              questions: cached.questions,
+              answers: cached.answers,
+              provider: cached.provider,
+            });
+            const cachedGrading = await getCachedGrading(latest.id);
+            if (!cancelled && cachedGrading) {
+              setGrading({ status: "done", summary: cachedGrading.summary });
+              setGradedItems(cachedGrading.gradedItems);
+              autoGradedRef.current = true;
+            }
           }
         }
       } catch {
@@ -306,7 +299,7 @@ export function Workspace() {
         if (!cancelled) hydrationDoneRef.current = true;
       }
     };
-    hydratePipeline();
+    hydrateProject();
 
     getAllLogs()
       .then((entries) => {
@@ -319,7 +312,7 @@ export function Workspace() {
     return () => {
       cancelled = true;
     };
-  }, [buildPageImages, refreshSavedResponses, provider]);
+  }, [buildPageImages, refreshSavedResponses]);
 
   useEffect(() => {
     const currentUrls = urlsRef.current;
@@ -332,20 +325,25 @@ export function Workspace() {
 
   const handleSelect = useCallback(
     async (id: DocumentId, files: File[]) => {
+      let pid = projectIdRef.current;
+      if (!pid) {
+        pid = createProjectId();
+        projectIdRef.current = pid;
+        saveProject({
+          id: pid,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }).catch(() => undefined);
+      }
+
       const fileName =
         files.length === 1 ? files[0].name : `${files.length} images`;
       originalFilesRef.current[id] = files;
       dispatchSlot({ type: "progress", id, fileName, done: 0, total: 0 });
       if (id === "answer-sheet" || id === "question-paper") {
-        deleteCachedGrading(
-          gradingCacheKeyFor(
-            extraction.questions,
-            extraction.answers,
-            extraction.provider ?? provider,
-          ),
-        ).catch(() => undefined);
-        clearPipelineProgress().catch(() => undefined);
-        deleteExtraction(id).catch(() => undefined);
+        deleteCachedGrading(pid).catch(() => undefined);
+        clearPipelineProgress(pid).catch(() => undefined);
+        deleteExtraction(pid, id).catch(() => undefined);
         setExtraction({ status: "idle", questions: [], answers: [] });
         setGrading({ status: "idle" });
         setGradedItems([]);
@@ -368,7 +366,7 @@ export function Workspace() {
           createdAt: new Date().toISOString(),
         };
         try {
-          await saveDocument(stored);
+          await saveDocument(pid, stored);
         } catch {
           /* best-effort */
         }
@@ -391,21 +389,18 @@ export function Workspace() {
         });
       }
     },
-    [buildPageImages, extraction, provider],
+    [buildPageImages],
   );
 
   const handleRemove = useCallback(
     (id: DocumentId) => {
+      const pid = projectIdRef.current;
       revokeUrls(id);
-      deleteCachedGrading(
-        gradingCacheKeyFor(
-          extraction.questions,
-          extraction.answers,
-          extraction.provider ?? provider,
-        ),
-      ).catch(() => undefined);
-      clearPipelineProgress().catch(() => undefined);
-      deleteDocument(id).catch(() => undefined);
+      if (pid) {
+        deleteCachedGrading(pid).catch(() => undefined);
+        clearPipelineProgress(pid).catch(() => undefined);
+        deleteDocument(pid, id).catch(() => undefined);
+      }
       delete originalFilesRef.current[id];
       dispatchSlot({ type: "reset", id });
       setExtraction({ status: "idle", questions: [], answers: [] });
@@ -414,7 +409,7 @@ export function Workspace() {
       autoGradedRef.current = false;
       setActiveQuestionId(null);
     },
-    [revokeUrls, extraction, provider],
+    [revokeUrls],
   );
 
   const refreshLogs = useCallback(() => {
@@ -674,12 +669,15 @@ export function Workspace() {
         .catch(() => undefined);
 
       try {
-        await saveExtraction("answer-sheet", {
-          version: 22,
-          questions: newExtraction.questions,
-          answers: newExtraction.answers,
-          provider: newExtraction.provider,
-        });
+        const pid = projectIdRef.current;
+        if (pid) {
+          await saveExtraction(pid, "answer-sheet", {
+            version: 22,
+            questions: newExtraction.questions,
+            answers: newExtraction.answers,
+            provider: newExtraction.provider,
+          });
+        }
       } catch {
         /* best-effort */
       }
@@ -786,6 +784,12 @@ export function Workspace() {
       setGradedItems([]);
       autoGradedRef.current = false;
       setActiveQuestionId(null);
+      const pid = projectIdRef.current;
+      if (pid) {
+        deleteCachedGrading(pid).catch(() => undefined);
+        clearPipelineProgress(pid).catch(() => undefined);
+        deleteExtraction(pid, "answer-sheet").catch(() => undefined);
+      }
 
       try {
         const response = await fetch("/api/extract/offline", {
@@ -849,15 +853,12 @@ export function Workspace() {
     )
       return;
 
-    const cacheKey = gradingCacheKeyFor(
-      extraction.questions,
-      extraction.answers,
-      extraction.provider ?? provider,
-    );
+    const pid = projectIdRef.current;
+    if (!pid) return;
 
     // Reuse a previously successful result from local storage instead of
-    // calling the API again for the same extraction content.
-    const cached = await getCachedGrading(cacheKey);
+    // calling the API again for the same project.
+    const cached = await getCachedGrading(pid);
     if (cached) {
       setGrading({ status: "done", summary: cached.summary });
       setGradedItems(cached.gradedItems);
@@ -882,12 +883,20 @@ export function Workspace() {
       }
 
       const result = await response.json();
+
+      // Persist the final result to local storage BEFORE reflecting "done" in
+      // the UI, so a quick reload always finds it and never needs the API again.
+      try {
+        await saveCachedGrading(pid, {
+          summary: result.summary,
+          gradedItems: result.gradedItems ?? [],
+        });
+      } catch {
+        /* best-effort */
+      }
+
       setGrading({ status: "done", summary: result.summary });
       setGradedItems(result.gradedItems ?? []);
-      saveCachedGrading(cacheKey, {
-        summary: result.summary,
-        gradedItems: result.gradedItems ?? [],
-      }).catch(() => undefined);
 
       saveLog("grade", {
         provider: extraction.provider ?? provider,
@@ -916,15 +925,11 @@ export function Workspace() {
   }, [hasExtraction, extraction, mapped, provider, refreshLogs]);
 
   const handleReset = useCallback(() => {
-    deleteCachedGrading(
-      gradingCacheKeyFor(
-        extraction.questions,
-        extraction.answers,
-        extraction.provider ?? provider,
-      ),
-    ).catch(() => undefined);
-    clearPipelineProgress().catch(() => undefined);
-    deleteExtraction("answer-sheet").catch(() => undefined);
+    const pid = projectIdRef.current;
+    if (pid) {
+      deleteProject(pid).catch(() => undefined);
+    }
+    projectIdRef.current = null;
     clearLogs()
       .then(refreshLogs)
       .catch(() => undefined);
@@ -934,7 +939,7 @@ export function Workspace() {
     autoGradedRef.current = false;
     setActiveQuestionId(null);
     mappingLoggedFor.current = "";
-  }, [extraction, provider, refreshLogs]);
+  }, [refreshLogs]);
 
   const handleQuestionSelect = useCallback((id: string) => {
     setActiveQuestionId((prev) => (prev === id ? null : id));
@@ -954,8 +959,10 @@ export function Workspace() {
   // Keep a background ledger of the whole process in local storage so the app
   // knows how far things got even after the tab is closed.
   useEffect(() => {
+    const pid = projectIdRef.current;
+    if (!pid) return;
     if (extraction.status === "idle" && grading.status === "idle") return;
-    savePipelineProgress({
+    savePipelineProgress(pid, {
       version: 22,
       extraction:
         extraction.status === "done"
