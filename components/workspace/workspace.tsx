@@ -276,7 +276,7 @@ export function Workspace() {
           if (
             !cancelled &&
             cached &&
-            cached.version === 22 &&
+            cached.version === 24 &&
             cached.questions.length > 0
           ) {
             setExtraction({
@@ -672,7 +672,7 @@ export function Workspace() {
         const pid = projectIdRef.current;
         if (pid) {
           await saveExtraction(pid, "answer-sheet", {
-            version: 22,
+version: 24,
             questions: newExtraction.questions,
             answers: newExtraction.answers,
             provider: newExtraction.provider,
@@ -963,7 +963,7 @@ export function Workspace() {
     if (!pid) return;
     if (extraction.status === "idle" && grading.status === "idle") return;
     savePipelineProgress(pid, {
-      version: 22,
+      version: 24,
       extraction:
         extraction.status === "done"
           ? "done"

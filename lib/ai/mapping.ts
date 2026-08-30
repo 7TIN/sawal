@@ -1,5 +1,9 @@
 import type { Question, Answer, MappedItem } from "@/lib/types";
-import { normalizeQuestionNumber, extractAnswerQuestionRef } from "./parser";
+import {
+  normalizeQuestionNumber,
+  extractAnswerQuestionRef,
+  extractMaxMarks,
+} from "./parser";
 
 function romanToNumber(s: string): number | null {
   const map: Record<string, number> = { i: 1, v: 5, x: 10, l: 50, c: 100 };
@@ -47,12 +51,23 @@ function flattenQuestions(question: Question): Question[] {
   return result;
 }
 
+// Best-effort: if a question is missing its total marks, recover it from the
+// question text so grading always uses the paper's own marks instead of a
+// generic fallback.
+function withMaxMarks(question: Question): Question {
+  if (question.maxMarks != null && question.maxMarks > 0) return question;
+  const parsed = extractMaxMarks(question.text);
+  if (!parsed) return question;
+  return { ...question, maxMarks: parsed };
+}
+
 export function mapQuestionsToAnswers(questions: Question[], answers: Answer[]): MappedItem[] {
   const flatQuestions = questions.flatMap(flattenQuestions);
   const answerUsed = new Set<string>();
   const items: MappedItem[] = [];
 
-  for (const question of flatQuestions) {
+  for (const flat of flatQuestions) {
+    const question = withMaxMarks(flat);
     let bestAnswer: Answer | null = null;
     let bestScore = 0;
     const qKeys = numberKey(question.number);

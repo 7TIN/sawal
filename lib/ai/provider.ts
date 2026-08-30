@@ -153,7 +153,7 @@ function buildQuestionsFromDigitise(qpDigitise: string[]) {
   const pages = qpTexts.map((content, i) => ({ pageNumber: i, content }));
   const parsed = parseQuestionTextFromPages(pages);
   const questions = parsed.map((q, i) => {
-    const maxMarks = extractMaxMarks(q.text);
+    const maxMarks = q.maxMarks ?? extractMaxMarks(q.text);
     return {
       id: `q${i + 1}`,
       number: q.number,
@@ -246,12 +246,14 @@ Return ONLY a valid JSON object (no markdown, no explanation):
     {
       "number": "1",
       "text": "Full question text here",
-      "page": 0
+      "page": 0,
+      "maxMarks": 2
     },
     {
       "number": "1(a)",
       "text": "Sub-question text",
-      "page": 0
+      "page": 0,
+      "maxMarks": 1
     }
   ],
   "answersByPage": {
@@ -266,7 +268,13 @@ Return ONLY a valid JSON object (no markdown, no explanation):
       }
     ]
   }
-}`;
+}
+
+HOW TO FILL IN "maxMarks" (read marks EXACTLY as printed — never guess, estimate, or invent):
+- If the marks are printed next to the question itself — "(2 Marks)", "1 Mark", "[5]", "Marks: 5" — use that exact number.
+- If questions are grouped into sections with one mark printed once in the section header — e.g. "Part I: Multiple Choice Questions (1 Mark Each)", "Section B (3 Marks Each)", "(4 x 5 = 20)" — then EVERY question in that section gets that same printed number.
+- If the marks appear in a column or table — e.g. "| Q.No | Question | Max Marks |" with a value in each row — use the value from that row's column.
+- If a question's mark is genuinely not printed anywhere, OMIT "maxMarks" for it. Do not infer a mark from the answer length, the section's question count, or a neighbouring question.`;
 
   const response = await genai.models.generateContent({
     model: "gemini-3.5-flash-lite",
@@ -288,18 +296,21 @@ Return ONLY a valid JSON object (no markdown, no explanation):
   const parsed = JSON.parse(text);
 
   const questions = (parsed.questions ?? []).map(
-    (q: { id?: string; number: string; text: string; page?: number }) => ({
-      id: q.id || `q${q.number}`,
-      number: String(q.number),
-      text: q.text || "",
-      page: q.page ?? 0,
-      isSub: /\([a-z0-9]+\)|^[a-z]\)?\.|^[a-z]\(/.test(String(q.number)),
-      parentNumber: extractParentNumber(String(q.number)),
-      ...(() => {
-        const maxMarks = extractMaxMarks(q.text ?? "");
-        return maxMarks ? { maxMarks } : {};
-      })(),
-    }),
+    (q: { id?: string; number: string; text?: string; page?: number; maxMarks?: number }) => {
+      const readMarks = Number(q.maxMarks);
+      const marks = Number.isFinite(readMarks) && readMarks > 0
+        ? readMarks
+        : extractMaxMarks(q.text ?? "");
+      return {
+        id: q.id || `q${q.number}`,
+        number: String(q.number),
+        text: q.text || "",
+        page: q.page ?? 0,
+        isSub: /\([a-z0-9]+\)|^[a-z]\)?\.|^[a-z]\(/.test(String(q.number)),
+        parentNumber: extractParentNumber(String(q.number)),
+        ...(marks ? { maxMarks: marks } : {}),
+      };
+    },
   );
 
   const answersByPage: Record<number, ExtractedAnswer[]> = {};

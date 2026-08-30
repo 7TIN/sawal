@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { MappedItem, GradingSummary } from "@/lib/types";
+import { extractMaxMarks } from "@/lib/ai/parser";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -86,7 +87,7 @@ Return ONLY a valid JSON array (no markdown, no comments) with one object per pa
 
 Rules:
 - verdict must be: "correct" (full marks), "partial" (some marks), or "incorrect" (zero).
-- maxMarks: when the pair provides a maxMarks number, that is the marks printed on the question paper — always output that exact value and never exceed it. When maxMarks is null, infer the mark value from the question text; otherwise use 10 as a default.
+- maxMarks: each pair already carries the exact marks printed for that question on the paper (for example 1, 2, 5, 7, 8 or 10). ALWAYS output that exact value and never exceed it. Never invent or default to 10, and never give every question the same maximum — each question keeps its own paper total.
 - marks must be between 0 and maxMarks.
 - feedback must reference the specific question and the student's actual written content — never generic text.`;
 
@@ -110,10 +111,10 @@ Rules:
   try {
     grades = JSON.parse(text);
   } catch {
-    // Fallback: assign zero grades
-    grades = matched.map(() => ({
+    // Fallback: assign zero grades using each question's own total
+    grades = matched.map((m) => ({
       marks: 0,
-      maxMarks: 10,
+      maxMarks: m.question.maxMarks ?? 10,
       verdict: "incorrect",
       feedback: "Grading failed to parse. Please review manually.",
     }));
@@ -123,7 +124,10 @@ Rules:
   matched.forEach((item, i) => {
     const g = grades[i];
     if (!g) return;
-    const maxMarks = item.question.maxMarks ?? g.maxMarks;
+    const maxMarks =
+      item.question.maxMarks ??
+      extractMaxMarks(item.question.text) ??
+      g.maxMarks;
     gradedById.set(item.question.id, {
       ...item,
       grade: {
