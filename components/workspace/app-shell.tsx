@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/workspace/sidebar";
 import { ExamHeader } from "@/components/workspace/exam-header";
 
@@ -9,16 +10,20 @@ type AppShellProps = {
 };
 
 export function AppShell({ children }: AppShellProps) {
+  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
     <>
       <div className="hidden h-full shrink-0 pt-2 pl-2 pb-2 lg:flex">
-        <Sidebar />
+        <Sidebar onExamsClick={() => router.push("/")} />
       </div>
 
       <main className="m-2 flex min-w-0 flex-1 flex-col gap-2">
-        <ExamHeader onMenuToggle={() => setMobileOpen(true)} />
+        <ExamHeader
+          onMenuToggle={() => setMobileOpen(true)}
+          onBack={() => router.push("/")}
+        />
         <div className=" min-h-0 flex-1 overflow-hidden">{children}</div>
       </main>
 
@@ -39,6 +44,10 @@ export function AppShell({ children }: AppShellProps) {
           onNavigate={() => setMobileOpen(false)}
           initialCollapsed={false}
           forceExpanded
+          onExamsClick={() => {
+            setMobileOpen(false);
+            router.push("/");
+          }}
         />
       </div>
     </>

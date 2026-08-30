@@ -78,6 +78,12 @@ export type Project = {
   label?: string;
 };
 
+export function createProjectId(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export async function saveProject(project: Project) {
   await runWrite(
     PROJECT_STORE,
@@ -85,6 +91,26 @@ export async function saveProject(project: Project) {
     (store) => store.put(project),
     "Project could not be saved.",
   );
+}
+
+// Keep the project's "updatedAt" in sync (creating the record if missing) whenever
+// its documents, extraction or grading change, so the hub shows a truthful timeline.
+export async function touchProject(projectId: string) {
+  const database = await openDatabase();
+  const existing = (await requestAsPromise(
+    database.transaction(PROJECT_STORE, "readonly")
+      .objectStore(PROJECT_STORE)
+      .get(projectId),
+    "Project could not be read.",
+  )) as Project | undefined;
+  database.close();
+  const now = new Date().toISOString();
+  await saveProject({
+    id: projectId,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    ...(existing?.label ? { label: existing.label } : {}),
+  });
 }
 
 export async function getProjects(): Promise<Project[]> {
@@ -169,6 +195,16 @@ export async function deleteDocument(projectId: string, id: DocumentId) {
     (store) => store.delete(scopedKey(projectId, id)),
     "Extraction data could not be deleted.",
   );
+}
+
+// Lightweight metadata only — no page blobs — for listing projects on the hub.
+export async function getDocumentInfo(
+  projectId: string,
+  id: DocumentId,
+): Promise<{ fileName: string; createdAt: string } | undefined> {
+  const stored = await getDocument(projectId, id);
+  if (!stored) return undefined;
+  return { fileName: stored.fileName, createdAt: stored.createdAt };
 }
 
 export async function saveExtraction(

@@ -39,8 +39,9 @@ import {
   deleteCachedGrading,
   savePipelineProgress,
   clearPipelineProgress,
+  createProjectId,
   saveProject,
-  getLatestProject,
+  touchProject,
   deleteProject,
   type ApiLog,
   type RawExtractionSummary,
@@ -168,12 +169,17 @@ const SLOT_META: Record<DocumentId, { title: string }> = {
   },
 };
 
-const createProjectId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `project-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+type WorkspaceProps = {
+  projectId: string;
+  onResetDone?: () => void;
+  onProjectCreated?: (pid: string) => void;
+};
 
-export function Workspace() {
+export function Workspace({
+  projectId,
+  onResetDone,
+  onProjectCreated,
+}: WorkspaceProps) {
   const [slots, dispatchSlot] = useReducer(slotReducer, initialSlots);
   const [extraction, setExtraction] = useState<ExtractionState>({
     status: "idle",
@@ -239,58 +245,57 @@ export function Workspace() {
     [revokeUrls],
   );
 
-  // Hydrate from IndexedDB on mount: resolve the latest project and restore
-  // its documents, extraction and grading so the user is pushed straight back
-  // to the most final completed step.
+  // Hydrate from IndexedDB on mount: resolve this project's documents, extraction
+  // and grading so the user is pushed straight back to the most final step.
   useEffect(() => {
     let cancelled = false;
+    projectIdRef.current = projectId;
 
     const hydrateProject = async () => {
       try {
-        const latest = await getLatestProject();
-        if (!cancelled && latest) {
-          projectIdRef.current = latest.id;
-
-          for (const id of DOCUMENT_IDS) {
-            const stored = await getDocument(latest.id, id);
-            if (!stored || cancelled || stored.pages.length === 0) continue;
-            const pages = await buildPageImages(
-              id,
-              stored.pages.map((blob) => ({ blob })),
-            );
-            if (cancelled) return;
-            dispatchSlot({
-              type: "hydrate",
-              id,
-              slot: { status: "ready", document: stored, pages },
-            });
-          }
+        if (!projectId) {
+          if (!cancelled) hydrationDoneRef.current = true;
+          return;
+        }
+        for (const id of DOCUMENT_IDS) {
+          const stored = await getDocument(projectId, id);
+          if (!stored || cancelled || stored.pages.length === 0) continue;
+          const pages = await buildPageImages(
+            id,
+            stored.pages.map((blob) => ({ blob })),
+          );
           if (cancelled) return;
+          dispatchSlot({
+            type: "hydrate",
+            id,
+            slot: { status: "ready", document: stored, pages },
+          });
+        }
+        if (cancelled) return;
 
-          const cached = await getExtraction<{
-            version?: number;
-            questions: Question[];
-            answers: Answer[];
-            provider: ProviderName;
-          }>(latest.id, "answer-sheet");
-          if (
-            !cancelled &&
-            cached &&
-            cached.version === 24 &&
-            cached.questions.length > 0
-          ) {
-            setExtraction({
-              status: "done",
-              questions: cached.questions,
-              answers: cached.answers,
-              provider: cached.provider,
-            });
-            const cachedGrading = await getCachedGrading(latest.id);
-            if (!cancelled && cachedGrading) {
-              setGrading({ status: "done", summary: cachedGrading.summary });
-              setGradedItems(cachedGrading.gradedItems);
-              autoGradedRef.current = true;
-            }
+        const cached = await getExtraction<{
+          version?: number;
+          questions: Question[];
+          answers: Answer[];
+          provider: ProviderName;
+        }>(projectId, "answer-sheet");
+        if (
+          !cancelled &&
+          cached &&
+          cached.version === 24 &&
+          cached.questions.length > 0
+        ) {
+          setExtraction({
+            status: "done",
+            questions: cached.questions,
+            answers: cached.answers,
+            provider: cached.provider,
+          });
+          const cachedGrading = await getCachedGrading(projectId);
+          if (!cancelled && cachedGrading) {
+            setGrading({ status: "done", summary: cachedGrading.summary });
+            setGradedItems(cachedGrading.gradedItems);
+            autoGradedRef.current = true;
           }
         }
       } catch {
@@ -312,7 +317,7 @@ export function Workspace() {
     return () => {
       cancelled = true;
     };
-  }, [buildPageImages, refreshSavedResponses]);
+  }, [buildPageImages, refreshSavedResponses, projectId]);
 
   useEffect(() => {
     const currentUrls = urlsRef.current;
@@ -326,6 +331,7 @@ export function Workspace() {
   const handleSelect = useCallback(
     async (id: DocumentId, files: File[]) => {
       let pid = projectIdRef.current;
+      const createdProjectNow = !pid;
       if (!pid) {
         pid = createProjectId();
         projectIdRef.current = pid;
@@ -335,6 +341,7 @@ export function Workspace() {
           updatedAt: new Date().toISOString(),
         }).catch(() => undefined);
       }
+      touchProject(pid).catch(() => undefined);
 
       const fileName =
         files.length === 1 ? files[0].name : `${files.length} images`;
@@ -370,6 +377,7 @@ export function Workspace() {
         } catch {
           /* best-effort */
         }
+        touchProject(pid).catch(() => undefined);
         const pageImages = await buildPageImages(id, pages);
         dispatchSlot({
           type: "ready",
@@ -377,6 +385,7 @@ export function Workspace() {
           document: stored,
           pages: pageImages,
         });
+        if (createdProjectNow) onProjectCreated?.(pid);
       } catch (error) {
         dispatchSlot({
           type: "error",
@@ -389,7 +398,7 @@ export function Workspace() {
         });
       }
     },
-    [buildPageImages],
+    [buildPageImages, onProjectCreated],
   );
 
   const handleRemove = useCallback(
@@ -677,6 +686,7 @@ version: 24,
             answers: newExtraction.answers,
             provider: newExtraction.provider,
           });
+          await touchProject(pid).catch(() => undefined);
         }
       } catch {
         /* best-effort */
@@ -894,6 +904,7 @@ version: 24,
       } catch {
         /* best-effort */
       }
+      touchProject(pid).catch(() => undefined);
 
       setGrading({ status: "done", summary: result.summary });
       setGradedItems(result.gradedItems ?? []);
@@ -939,7 +950,8 @@ version: 24,
     autoGradedRef.current = false;
     setActiveQuestionId(null);
     mappingLoggedFor.current = "";
-  }, [refreshLogs]);
+    onResetDone?.();
+  }, [refreshLogs, onResetDone]);
 
   const handleQuestionSelect = useCallback((id: string) => {
     setActiveQuestionId((prev) => (prev === id ? null : id));
