@@ -3,7 +3,7 @@
 import { useState } from "react";
 import {
   BookOpen,
-  CalendarDays,
+  Clipboard,
   FileText,
   GraduationCap,
   Home,
@@ -36,7 +36,7 @@ const MENU_ITEMS = [
   },
   {
     label: "Exams",
-    icon: CalendarDays,
+    icon: Clipboard,
     disabled: false,
   },
   {
@@ -217,7 +217,7 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
         )}
 
         {/* School */}
-        {collapsed ? (
+        {/* {collapsed ? (
           <button
             type="button"
             onClick={() => setCollapsed(false)}
@@ -225,17 +225,17 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
             className="flex size-[60px] shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-[#F0F0F0]"
           >
             <BookOpen className="size-7 text-[#5E5E5E]" strokeWidth={1.5} />
-          </button>
-        ) : (
-          <div className="flex w-full items-center gap-2 rounded-[16px] bg-[#F0F0F0] p-3">
-            <div className="flex size-[60px] shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-white">
+          </button> */}
+        {/* ) : ( */}
+          {/* <div className="flex w-full items-center gap-2 rounded-[16px] bg-[#F0F0F0] p-3">
+            <div className="flex size-[60px] shrink-0 items-center justify-center overflow-hidden rounded-[12px] bg-white"> */}
               {/* Replace with your actual school image */}
-              <div className="flex size-full items-center justify-center text-[#5E5E5E]">
+              {/* <div className="flex size-full items-center justify-center text-[#5E5E5E]">
                 <BookOpen className="size-7" strokeWidth={1.5} />
-              </div>
-            </div>
+              </div> */}
+            {/* </div> */}
 
-            <div className="min-w-0">
+            {/* <div className="min-w-0">
               <p className="truncate font-sans text-[16px] font-bold leading-[1.4] tracking-[-0.64px] text-[#303030]">
                 Delhi Public School
               </p>
@@ -245,7 +245,7 @@ export function Sidebar({ onExamsClick, className }: SidebarProps) {
               </p>
             </div>
           </div>
-        )}
+        )} */}
       </div>
     </aside>
   );

@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <div className="flex h-full shrink-0 pt-2 pl-2 pb-2">
           <Sidebar />
         </div>
-        <main className="mx-2 flex min-w-0 flex-1 flex-col ">
+        <main className="mx-2 flex min-w-0 flex-1 flex-col gap-y-2">
           <ExamHeader />
           <div className="mb-2 min-h-0 flex-1 overflow-hidden">{children}</div>
         </main>

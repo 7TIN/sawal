@@ -937,7 +937,7 @@ export function Workspace() {
         />
       )}
 
-      {!hasExtraction && (
+      {!hasExtraction && !isProd && (
         <>
           <div className="mb-5 flex items-center justify-between">
             <PipelineStepper
@@ -1097,7 +1097,7 @@ export function Workspace() {
           {isProd ? (
             hasGrading && grading.summary ? (
               <>
-                <div className="mt-3 grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
+                <div className="grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
                   <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
                     <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
                       {extraction.questions.length === 0 ? (
