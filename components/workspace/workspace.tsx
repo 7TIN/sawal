@@ -33,6 +33,9 @@ import {
   getRawExtractionSummaries,
   saveRawExtraction,
   deleteRawExtraction,
+  getCachedGrading,
+  saveCachedGrading,
+  deleteCachedGrading,
   type ApiLog,
   type RawExtractionSummary,
 } from "@/lib/storage";
@@ -159,6 +162,18 @@ const SLOT_META: Record<DocumentId, { title: string }> = {
   },
 };
 
+const gradingCacheKeyFor = (
+  questions: Question[],
+  answers: Answer[],
+  providerName: string,
+) => {
+  const questionsSig = questions
+    .map((q) => `${q.id}:${q.maxMarks ?? ""}`)
+    .join("|");
+  const answersSig = answers.map((a) => `${a.id}:${a.regions.length}`).join("|");
+  return `v22|${providerName}|${questionsSig}::${answersSig}`;
+};
+
 export function Workspace() {
   const [slots, dispatchSlot] = useReducer(slotReducer, initialSlots);
   const [extraction, setExtraction] = useState<ExtractionState>({
@@ -264,6 +279,18 @@ export function Workspace() {
             answers: cached.answers,
             provider: cached.provider,
           });
+          const cachedGrading = getCachedGrading(
+            gradingCacheKeyFor(
+              cached.questions,
+              cached.answers,
+              cached.provider ?? provider,
+            ),
+          );
+          if (cachedGrading) {
+            setGrading({ status: "done", summary: cachedGrading.summary });
+            setGradedItems(cachedGrading.gradedItems);
+            prodAutoGradedRef.current = true;
+          }
         }
       } catch {
         // Ignore
@@ -282,7 +309,7 @@ export function Workspace() {
     return () => {
       cancelled = true;
     };
-  }, [buildPageImages, refreshSavedResponses]);
+  }, [buildPageImages, refreshSavedResponses, provider]);
 
   useEffect(() => {
     const currentUrls = urlsRef.current;
@@ -300,6 +327,13 @@ export function Workspace() {
       originalFilesRef.current[id] = files;
       dispatchSlot({ type: "progress", id, fileName, done: 0, total: 0 });
       if (id === "answer-sheet" || id === "question-paper") {
+        deleteCachedGrading(
+          gradingCacheKeyFor(
+            extraction.questions,
+            extraction.answers,
+            extraction.provider ?? provider,
+          ),
+        );
         deleteExtraction(id).catch(() => undefined);
         setExtraction({ status: "idle", questions: [], answers: [] });
         setGrading({ status: "idle" });
@@ -346,12 +380,19 @@ export function Workspace() {
         });
       }
     },
-    [buildPageImages],
+    [buildPageImages, extraction, provider],
   );
 
   const handleRemove = useCallback(
     (id: DocumentId) => {
       revokeUrls(id);
+      deleteCachedGrading(
+        gradingCacheKeyFor(
+          extraction.questions,
+          extraction.answers,
+          extraction.provider ?? provider,
+        ),
+      );
       deleteDocument(id).catch(() => undefined);
       delete originalFilesRef.current[id];
       dispatchSlot({ type: "reset", id });
@@ -361,7 +402,7 @@ export function Workspace() {
       prodAutoGradedRef.current = false;
       setActiveQuestionId(null);
     },
-    [revokeUrls],
+    [revokeUrls, extraction, provider],
   );
 
   const refreshLogs = useCallback(() => {
@@ -816,6 +857,17 @@ export function Workspace() {
       const result = await response.json();
       setGrading({ status: "done", summary: result.summary });
       setGradedItems(result.gradedItems ?? []);
+      saveCachedGrading(
+        gradingCacheKeyFor(
+          extraction.questions,
+          extraction.answers,
+          extraction.provider ?? provider,
+        ),
+        {
+          summary: result.summary,
+          gradedItems: result.gradedItems ?? [],
+        },
+      );
 
       saveLog("grade", {
         provider: extraction.provider ?? provider,
@@ -844,6 +896,13 @@ export function Workspace() {
   }, [hasExtraction, extraction, mapped, provider, refreshLogs]);
 
   const handleReset = useCallback(() => {
+    deleteCachedGrading(
+      gradingCacheKeyFor(
+        extraction.questions,
+        extraction.answers,
+        extraction.provider ?? provider,
+      ),
+    );
     deleteExtraction("answer-sheet").catch(() => undefined);
     clearLogs()
       .then(refreshLogs)
@@ -854,7 +913,7 @@ export function Workspace() {
     prodAutoGradedRef.current = false;
     setActiveQuestionId(null);
     mappingLoggedFor.current = "";
-  }, [refreshLogs]);
+  }, [extraction, provider, refreshLogs]);
 
   const handleQuestionSelect = useCallback((id: string) => {
     setActiveQuestionId((prev) => (prev === id ? null : id));
@@ -871,7 +930,7 @@ export function Workspace() {
   }, [hasExtraction, grading.status, handleGrade]);
 
   return (
-    <div className="">
+    <div className="h-full min-h-0 overflow-y-auto">
       {(extraction.status === "loading" || grading.status === "loading") && (
         <FullScreenLoading
           title={grading.status === "loading" ? "Grading..." : "Extracting..."}
@@ -960,7 +1019,7 @@ export function Workspace() {
       )}
 
       {hasExtraction && (
-        <div className="flex h-[calc(100vh-2rem)] flex-col">
+        <div className="flex h-full flex-col">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* <p className="text-sm text-muted-foreground">
               {extraction.questions.length}{" "}
@@ -1038,7 +1097,7 @@ export function Workspace() {
           {isProd ? (
             hasGrading && grading.summary ? (
               <>
-                <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[45%_1fr]">
+                <div className="mt-3 grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
                   <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-neutral-100 p-4">
                     <div className="scrollbar-none min-h-0 flex-1 overflow-y-auto ">
                       {extraction.questions.length === 0 ? (
@@ -1089,7 +1148,7 @@ export function Workspace() {
             )
           ) : (
             <>
-              <div className="mt-3 grid min-h-0 flex-1 gap-4 lg:grid-cols-[45%_1fr]">
+              <div className="mt-3 grid min-h-0 flex-1 gap-2 lg:grid-cols-[45%_1fr]">
                 <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border bg-card">
                   <div className="flex items-center justify-between gap-2 border-b px-4 py-2.5">
                     <h3 className="text-sm font-medium">

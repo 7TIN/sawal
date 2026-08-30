@@ -1,4 +1,9 @@
-import type { DocumentId, StoredDocument } from "./types";
+import type {
+  DocumentId,
+  GradingSummary,
+  MappedItem,
+  StoredDocument,
+} from "./types";
 
 const DATABASE_NAME = "veda-ai-storage";
 const DOCUMENT_STORE = "documents";
@@ -228,4 +233,62 @@ export async function deleteRawExtraction(id: string) {
     (store) => store.delete(id),
     "Saved response could not be deleted.",
   );
+}
+
+export type CachedGradingResult = {
+  summary: GradingSummary;
+  gradedItems: MappedItem[];
+};
+
+type CachedGradingRecord = CachedGradingResult & { savedAt: string };
+
+const GRADING_CACHE_KEY = "veda-ai-grading-v1";
+const GRADING_CACHE_LIMIT = 20;
+
+const readGradingCache = (): Record<string, CachedGradingRecord> => {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(GRADING_CACHE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, CachedGradingRecord>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const writeGradingCache = (cache: Record<string, CachedGradingRecord>) => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(GRADING_CACHE_KEY, JSON.stringify(cache));
+  } catch {
+    /* best-effort */
+  }
+};
+
+export function getCachedGrading(
+  cacheKey: string,
+): CachedGradingResult | undefined {
+  const cache = readGradingCache();
+  const record = cache[cacheKey];
+  if (!record) return undefined;
+  return { summary: record.summary, gradedItems: record.gradedItems };
+}
+
+export function saveCachedGrading(
+  cacheKey: string,
+  result: CachedGradingResult,
+) {
+  const cache = readGradingCache();
+  const entries = Object.entries(cache).sort((a, b) =>
+    a[1].savedAt < b[1].savedAt ? 1 : -1,
+  );
+  const trimmed = entries.slice(0, GRADING_CACHE_LIMIT);
+  const next: Record<string, CachedGradingRecord> = Object.fromEntries(trimmed);
+  next[cacheKey] = { ...result, savedAt: new Date().toISOString() };
+  writeGradingCache(next);
+}
+
+export function deleteCachedGrading(cacheKey: string) {
+  const cache = readGradingCache();
+  delete cache[cacheKey];
+  writeGradingCache(cache);
 }
