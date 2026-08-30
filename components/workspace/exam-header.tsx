@@ -20,7 +20,7 @@ type ExamHeaderProps = {
 
 export function ExamHeader({
   onBack,
-  userName = "Madhur Rastogi",
+  userName = "Test User",
   userAvatar,
   onMenuToggle,
 }: ExamHeaderProps) {
@@ -60,7 +60,7 @@ export function ExamHeader({
             <img src={userAvatar} alt="" className="size-8 rounded-full object-cover" />
           ) : (
             <div className="flex size-8 items-center justify-center rounded-full bg-[#303030] font-sans text-xs font-semibold text-white">
-              MR
+              T
             </div>
           )}
         </button>
@@ -153,7 +153,7 @@ export function ExamHeader({
             <img src={userAvatar} alt="" className="size-full object-cover" />
           ) : (
             <div className="flex size-full items-center justify-center bg-[#303030] font-sans text-xs font-semibold text-white">
-              MR
+              T
             </div>
           )}
         </div>

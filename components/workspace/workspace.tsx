@@ -950,7 +950,7 @@ export function Workspace() {
         </div>
       )}
 
-      <div className="flex flex-col items-center gap-8">
+      <div className="flex flex-col items-center gap-8 sm:mt-30">
         <header className="flex flex-col items-center gap-2 text-center">
           <div className="flex flex-wrap items-center justify-center gap-3">
             <h1 className="text-2xl font-semibold tracking-tight text-foreground">

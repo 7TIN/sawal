@@ -17,9 +17,9 @@ export function AppShell({ children }: AppShellProps) {
         <Sidebar />
       </div>
 
-      <main className="mx-2 flex min-w-0 flex-1 flex-col gap-1">
+      <main className="m-2 flex min-w-0 flex-1 flex-col gap-2">
         <ExamHeader onMenuToggle={() => setMobileOpen(true)} />
-        <div className="mb-2 min-h-0 flex-1 overflow-hidden">{children}</div>
+        <div className=" min-h-0 flex-1 overflow-hidden">{children}</div>
       </main>
 
       <div

@@ -5,6 +5,7 @@ import {
   FileUp,
   LoaderCircle,
   TriangleAlert,
+  Upload,
   X,
 } from "lucide-react";
 import type { DocumentId, SlotState } from "@/lib/types";
@@ -99,7 +100,7 @@ export function UploadSlot({
           ].join(" ")}
         >
           <div className="flex size-12 items-center justify-center rounded-lg bg-[#F3F3F3] text-[#2B2B2B]">
-            <FileUp className="size-8" />
+            <Upload className="size-8" />
           </div>
 
           <div className="mt-4 flex flex-col items-center gap-0.5 text-center">
