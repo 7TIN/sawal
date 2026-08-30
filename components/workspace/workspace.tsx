@@ -37,6 +37,8 @@ import {
   getCachedGrading,
   saveCachedGrading,
   deleteCachedGrading,
+  savePipelineProgress,
+  clearPipelineProgress,
   type ApiLog,
   type RawExtractionSummary,
 } from "@/lib/storage";
@@ -66,7 +68,7 @@ import { isProd, showDebugPanels } from "@/lib/env";
 
 function FullScreenLoading({ title }: { title: string }) {
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background/95 backdrop-blur-sm">
+    <div className="flex h-full min-h-0 flex-col items-center justify-center">
       <Sparkles className="size-14 animate-pulse text-primary" />
       <p className="mt-8 text-4xl font-semibold tracking-tight">{title}</p>
       <p className="mt-2 text-sm text-muted-foreground">
@@ -203,7 +205,8 @@ export function Workspace() {
   const [gradedItems, setGradedItems] = useState<
     Awaited<ReturnType<typeof mapQuestionsToAnswers>>
   >([]);
-  const prodAutoGradedRef = useRef(false);
+  const autoGradedRef = useRef(false);
+  const hydrationDoneRef = useRef(false);
   const isMobile = useIsMobile();
   const [mobileView, setMobileView] = useState<"questions" | "answers">("questions");
 
@@ -264,7 +267,7 @@ export function Workspace() {
     };
     DOCUMENT_IDS.forEach(hydrate);
 
-    const hydrateExtraction = async () => {
+    const hydratePipeline = async () => {
       try {
         const cached = await getExtraction<{
           version?: number;
@@ -284,24 +287,26 @@ export function Workspace() {
             answers: cached.answers,
             provider: cached.provider,
           });
-          const cachedGrading = getCachedGrading(
+          const cachedGrading = await getCachedGrading(
             gradingCacheKeyFor(
               cached.questions,
               cached.answers,
               cached.provider ?? provider,
             ),
           );
-          if (cachedGrading) {
+          if (!cancelled && cachedGrading) {
             setGrading({ status: "done", summary: cachedGrading.summary });
             setGradedItems(cachedGrading.gradedItems);
-            prodAutoGradedRef.current = true;
+            autoGradedRef.current = true;
           }
         }
       } catch {
         // Ignore
+      } finally {
+        if (!cancelled) hydrationDoneRef.current = true;
       }
     };
-    hydrateExtraction();
+    hydratePipeline();
 
     getAllLogs()
       .then((entries) => {
@@ -338,12 +343,13 @@ export function Workspace() {
             extraction.answers,
             extraction.provider ?? provider,
           ),
-        );
+        ).catch(() => undefined);
+        clearPipelineProgress().catch(() => undefined);
         deleteExtraction(id).catch(() => undefined);
         setExtraction({ status: "idle", questions: [], answers: [] });
         setGrading({ status: "idle" });
         setGradedItems([]);
-        prodAutoGradedRef.current = false;
+        autoGradedRef.current = false;
         setActiveQuestionId(null);
       }
       try {
@@ -397,14 +403,15 @@ export function Workspace() {
           extraction.answers,
           extraction.provider ?? provider,
         ),
-      );
+      ).catch(() => undefined);
+      clearPipelineProgress().catch(() => undefined);
       deleteDocument(id).catch(() => undefined);
       delete originalFilesRef.current[id];
       dispatchSlot({ type: "reset", id });
       setExtraction({ status: "idle", questions: [], answers: [] });
       setGrading({ status: "idle" });
       setGradedItems([]);
-      prodAutoGradedRef.current = false;
+      autoGradedRef.current = false;
       setActiveQuestionId(null);
     },
     [revokeUrls, extraction, provider],
@@ -777,7 +784,7 @@ export function Workspace() {
       });
       setGrading({ status: "idle" });
       setGradedItems([]);
-      prodAutoGradedRef.current = false;
+      autoGradedRef.current = false;
       setActiveQuestionId(null);
 
       try {
@@ -842,6 +849,21 @@ export function Workspace() {
     )
       return;
 
+    const cacheKey = gradingCacheKeyFor(
+      extraction.questions,
+      extraction.answers,
+      extraction.provider ?? provider,
+    );
+
+    // Reuse a previously successful result from local storage instead of
+    // calling the API again for the same extraction content.
+    const cached = await getCachedGrading(cacheKey);
+    if (cached) {
+      setGrading({ status: "done", summary: cached.summary });
+      setGradedItems(cached.gradedItems);
+      return;
+    }
+
     setGrading({ status: "loading" });
 
     try {
@@ -862,17 +884,10 @@ export function Workspace() {
       const result = await response.json();
       setGrading({ status: "done", summary: result.summary });
       setGradedItems(result.gradedItems ?? []);
-      saveCachedGrading(
-        gradingCacheKeyFor(
-          extraction.questions,
-          extraction.answers,
-          extraction.provider ?? provider,
-        ),
-        {
-          summary: result.summary,
-          gradedItems: result.gradedItems ?? [],
-        },
-      );
+      saveCachedGrading(cacheKey, {
+        summary: result.summary,
+        gradedItems: result.gradedItems ?? [],
+      }).catch(() => undefined);
 
       saveLog("grade", {
         provider: extraction.provider ?? provider,
@@ -907,7 +922,8 @@ export function Workspace() {
         extraction.answers,
         extraction.provider ?? provider,
       ),
-    );
+    ).catch(() => undefined);
+    clearPipelineProgress().catch(() => undefined);
     deleteExtraction("answer-sheet").catch(() => undefined);
     clearLogs()
       .then(refreshLogs)
@@ -915,7 +931,7 @@ export function Workspace() {
     setExtraction({ status: "idle", questions: [], answers: [] });
     setGrading({ status: "idle" });
     setGradedItems([]);
-    prodAutoGradedRef.current = false;
+    autoGradedRef.current = false;
     setActiveQuestionId(null);
     mappingLoggedFor.current = "";
   }, [extraction, provider, refreshLogs]);
@@ -924,15 +940,44 @@ export function Workspace() {
     setActiveQuestionId((prev) => (prev === id ? null : id));
   }, []);
 
-  // In production, skip the review step and grade automatically once the
-  // extraction lands, so the user immediately sees the final grade result.
+  // Skip the review step and grade automatically once the extraction lands
+  // (also on reload when a persisted extraction has no cached grade yet), so
+  // the user is always pushed directly to the most final step.
   useEffect(() => {
-    if (!isProd) return;
+    if (!hydrationDoneRef.current) return;
     if (!hasExtraction || grading.status !== "idle") return;
-    if (prodAutoGradedRef.current) return;
-    prodAutoGradedRef.current = true;
+    if (autoGradedRef.current) return;
+    autoGradedRef.current = true;
     void handleGrade();
   }, [hasExtraction, grading.status, handleGrade]);
+
+  // Keep a background ledger of the whole process in local storage so the app
+  // knows how far things got even after the tab is closed.
+  useEffect(() => {
+    if (extraction.status === "idle" && grading.status === "idle") return;
+    savePipelineProgress({
+      version: 22,
+      extraction:
+        extraction.status === "done"
+          ? "done"
+          : extraction.status === "error"
+            ? "failed"
+            : extraction.status === "loading"
+              ? "working"
+              : "pending",
+      grading:
+        grading.status === "done"
+          ? "done"
+          : grading.status === "error"
+            ? "failed"
+            : grading.status === "loading"
+              ? "working"
+              : "pending",
+      updatedAt: new Date().toISOString(),
+      resultsSavedAt:
+        grading.status === "done" ? new Date().toISOString() : undefined,
+    }).catch(() => undefined);
+  }, [extraction.status, grading.status]);
 
   const uploadView = (
     <>
@@ -1055,15 +1100,15 @@ export function Workspace() {
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
-      {(extraction.status === "loading" || grading.status === "loading") && (
+      {extraction.status === "loading" || grading.status === "loading" ? (
         <FullScreenLoading
           title={grading.status === "loading" ? "Grading..." : "Extracting..."}
         />
-      )}
+      ) : (
+        <>
+          {!hasExtraction && uploadView}
 
-      {!hasExtraction && uploadView}
-
-      {hasExtraction && (
+          {hasExtraction && (
         <div className="flex h-full flex-col">
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* <p className="text-sm text-muted-foreground">
@@ -1085,9 +1130,7 @@ export function Workspace() {
                   </button>
                   <button
                     type="button"
-                    disabled={
-                      grading.status === "loading" || mapped.length === 0
-                    }
+                    disabled={mapped.length === 0}
                     onClick={handleGrade}
                     className="flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-40"
                   >
@@ -1252,6 +1295,8 @@ export function Workspace() {
             </>
           )}
         </div>
+      )}
+      </>
       )}
 
       {showDebugPanels && (
