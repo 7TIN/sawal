@@ -18,7 +18,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { parseFiles } from "@/lib/pdf";
+import { compressForUpload, parseFiles } from "@/lib/pdf";
 import { useIsMobile } from "@/lib/use-media-query";
 import {
   deleteDocument,
@@ -191,7 +191,6 @@ export function Workspace({
   const [provider, setProvider] = useState<ProviderName>("sarvam");
   const [logs, setLogs] = useState<ApiLog[]>([]);
   const [logsOpen, setLogsOpen] = useState(false);
-  const originalFilesRef = useRef<Partial<Record<DocumentId, File[]>>>({});
   const urlsRef = useRef<Record<DocumentId, string[]>>({
     "question-paper": [],
     "answer-sheet": [],
@@ -345,7 +344,6 @@ export function Workspace({
 
       const fileName =
         files.length === 1 ? files[0].name : `${files.length} images`;
-      originalFilesRef.current[id] = files;
       dispatchSlot({ type: "progress", id, fileName, done: 0, total: 0 });
       if (id === "answer-sheet" || id === "question-paper") {
         deleteCachedGrading(pid).catch(() => undefined);
@@ -410,7 +408,6 @@ export function Workspace({
         clearPipelineProgress(pid).catch(() => undefined);
         deleteDocument(pid, id).catch(() => undefined);
       }
-      delete originalFilesRef.current[id];
       dispatchSlot({ type: "reset", id });
       setExtraction({ status: "idle", questions: [], answers: [] });
       setGrading({ status: "idle" });
@@ -595,15 +592,6 @@ export function Workspace({
     return item?.answer?.regions[0]?.page ?? null;
   }, [activeQuestionId, hasExtraction, mapped]);
 
-  const getOriginalFile = useCallback(
-    (id: DocumentId): Blob | null => {
-      const slot = slots[id];
-      if (slot.status !== "ready") return null;
-      return slot.document.originalFile ?? null;
-    },
-    [slots],
-  );
-
   const applyExtractionResult = useCallback(
     async (
       result: {
@@ -700,43 +688,52 @@ version: 24,
   const handleExtract = useCallback(async () => {
     if (!bothReady) return;
 
-    setExtraction({
-      status: "loading",
-      stage: "Uploading documents...",
-      questions: [],
-      answers: [],
-    });
     setGrading({ status: "idle" });
     setActiveQuestionId(null);
 
     try {
-      const qpFile = getOriginalFile("question-paper");
-      const asFile = getOriginalFile("answer-sheet");
-      if (!qpFile || !asFile)
-        throw new Error(
-          "Original documents are not available. Please re-upload.",
-        );
-
       const qpSlot = slots["question-paper"];
       const asSlot = slots["answer-sheet"];
+      if (qpSlot.status !== "ready" || asSlot.status !== "ready")
+        throw new Error("Original documents are not available. Please re-upload.");
+
+      const qpName = qpSlot.document.fileName;
+      const asName = asSlot.document.fileName;
+
+      setExtraction({
+        status: "loading",
+        stage: "Compressing documents...",
+        questions: [],
+        answers: [],
+      });
+
+      const [qpFile, asFile] = await Promise.all([
+        compressForUpload(qpName, qpSlot.document.pages),
+        compressForUpload(asName, asSlot.document.pages),
+      ]);
 
       const formData = new FormData();
-      const qpName =
-        qpSlot.status === "ready"
-          ? qpSlot.document.fileName
-          : "question-paper.pdf";
-      const asName =
-        asSlot.status === "ready"
-          ? asSlot.document.fileName
-          : "answer-sheet.pdf";
-      formData.append("questionPaper", qpFile, qpName);
-      formData.append("answerSheet", asFile, asName);
+      formData.append("questionPaper", qpFile, qpFile.name);
+      formData.append("answerSheet", asFile, asFile.name);
       formData.append("provider", provider);
+
+      setExtraction({
+        status: "loading",
+        stage: "Uploading documents...",
+        questions: [],
+        answers: [],
+      });
 
       const response = await fetch("/api/extract", {
         method: "POST",
         body: formData,
       });
+
+      if (response.status === 413) {
+        throw new Error(
+          "The documents are too large to upload to the server. Try a smaller file or fewer pages.",
+        );
+      }
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
@@ -773,7 +770,6 @@ version: 24,
     bothReady,
     slots,
     provider,
-    getOriginalFile,
     refreshSavedResponses,
     applyExtractionResult,
   ]);
