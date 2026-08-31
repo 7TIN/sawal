@@ -7,6 +7,7 @@ type ParsedQuestion = {
   options?: string[];
   lineIndex?: number;
   maxMarks?: number;
+  sectionIndex?: number;
 };
 
 const MAIN_PATTERNS: Array<{ regex: RegExp; extract: (m: RegExpMatchArray) => string }> = [
@@ -33,6 +34,74 @@ function isLikelyQuestionStart(line: string): boolean {
   if (/^\d+\s*$/.test(trimmed)) return false;
   if (trimmed.length > 500) return false;
   return true;
+}
+
+// A line that is nothing but a printed mark, e.g. "(5 Marks)", "5 marks",
+// "Marks: 5". These are never question text, so they should not be merged into
+// a question or turned into a (sub)question of their own. A bare "1." or "(5)"
+// is a question number, not a mark, so the mark word/colon form is required.
+function isMarksOnlyLine(line: string): boolean {
+  const t = line.trim();
+  if (!t) return false;
+  const worded =
+    /^[\(\[\s]*[\d.]+\s*marks?\b[^\]\)]*[\)\]\s]*$/i.test(t) && /[\d.]/.test(t);
+  const colon = /^marks?\s*[:=]\s*[\d.]+\s*$/i.test(t);
+  return worded || colon;
+}
+
+// True when a captured question "text" is only the mark ("(5 Marks)") with no
+// real wording, meaning the following content line is the actual question.
+function isMarksOnlyText(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  const worded =
+    /^[\(\[\s]*[\d.]+\s*marks?\b[^\]\)]*[\)\]\s]*$/i.test(t) && /[\d.]/.test(t);
+  const colon = /^marks?\s*[:=]\s*[\d.]+\s*$/i.test(t);
+  return worded || colon;
+}
+
+// Removes printed mark tokens from question text so the list shows the actual
+// question, not "(2 Marks)". The value is still captured into maxMarks.
+function stripMarksFromText(text: string): string {
+  return text
+    .replace(/\([\d.]+\s*marks?[^)]*\)/gi, " ")
+    .replace(/\[[\d.]+\s*marks?[^\]]*\]/gi, " ")
+    .replace(/(?:total\s+)?marks?\s*[:=]\s*[\d.]+/gi, " ")
+    .replace(/\s+[\d.]+\s*marks?\s*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+type BuiltQuestion = {
+  number: string;
+  text: string;
+  page: number;
+  isSub: boolean;
+  parentNumber: string | null;
+  lineIndex: number;
+  sectionIndex: number;
+  maxMarks?: number;
+};
+
+function buildQuestion(args: {
+  number: string;
+  rawText: string;
+  page: number;
+  isSub: boolean;
+  parentNumber: string | null;
+  lineIndex: number;
+  sectionIndex: number;
+}): BuiltQuestion {
+  return {
+    number: args.number,
+    text: stripMarksFromText(args.rawText),
+    page: args.page,
+    isSub: args.isSub,
+    parentNumber: args.parentNumber,
+    lineIndex: args.lineIndex,
+    sectionIndex: args.sectionIndex,
+    maxMarks: extractMaxMarks(args.rawText) ?? undefined,
+  };
 }
 
 function extractMainNumber(line: string): string | null {
@@ -102,7 +171,13 @@ export function parseQuestionText(
   pageNumber: number,
 ): ParsedQuestion[] {
   const questions: ParsedQuestion[] = [];
-  const state: QuestionParserState = { currentMain: null, pendingOptions: [] };
+  const state: QuestionParserState = {
+    currentMain: null,
+    pendingOptions: [],
+    currentSection: 0,
+    numberedSubsActive: false,
+    lastSubNumber: null,
+  };
   parseQuestionLines(fullText.split("\n"), pageNumber, questions, state);
   attachPendingOptions(questions, state.pendingOptions);
   return questions;
@@ -111,7 +186,21 @@ export function parseQuestionText(
 type QuestionParserState = {
   currentMain: ParsedQuestion | null;
   pendingOptions: string[];
+  currentSection: number;
+  numberedSubsActive: boolean;
+  lastSubNumber: number | null;
 };
+
+// A section header names its own block ("Part A", "Section I", "Unit 2") so a
+// paper that re-uses question numbers in a later part keeps both. The regex is
+// deliberately strict: the designator must be a capital letter, roman numeral
+// or plain number, so a prose line like "Part of the answer is..." never bumps
+// the counter.
+function isSectionHeaderLine(line: string): boolean {
+  return /^[\(\[]?\s*(?:part|section|unit)\b[^a-z]*\s*(?:[A-Z]|[IVXLCDM]+|\d+)\b/i.test(
+    line.trim(),
+  );
+}
 
 function attachPendingOptions(questions: ParsedQuestion[], pendingOptions: string[]): void {
   if (questions.length > 0 && pendingOptions.length > 0) {
@@ -134,10 +223,29 @@ function parseQuestionLines(
 
     if (/^\d+\.?$/.test(trimmed) && i + 1 < lines.length) {
       const next = cleanLine(lines[i + 1]);
-      if (next && !/^\d+\.?$/.test(next)) {
+      if (next && !/^\d+\.?$/.test(next) && !isMarksOnlyLine(next)) {
         trimmed = `${trimmed.replace(/\.$/, "")}. ${next}`;
         i++;
       }
+    }
+
+    // Standalone marks line: never a question. Give its value to the most
+    // recently pushed question when that question has no marks yet.
+    if (isMarksOnlyLine(trimmed)) {
+      const marks = parseFloat(trimmed.match(/[\d.]+/)?.[0] ?? "");
+      const last = questions[questions.length - 1];
+      if (Number.isFinite(marks) && marks > 0 && last && last.maxMarks == null) {
+        last.maxMarks = marks;
+      }
+      continue;
+    }
+
+    if (isSectionHeaderLine(trimmed)) {
+      state.currentSection++;
+      state.currentMain = null;
+      state.numberedSubsActive = false;
+      state.lastSubNumber = null;
+      continue;
     }
 
     if (!isLikelyQuestionStart(trimmed)) continue;
@@ -155,21 +263,83 @@ function parseQuestionLines(
       continue;
     }
 
+    // Numbered sub-parts "1.1" / "1.2" under the current main question. Checked
+    // before main extraction so the dotted number is not stripped to a bare "1"
+    // and then dropped as a duplicate.
+    const currentMain = state.currentMain;
+    const dottedSub = currentMain
+      ? trimmed.match(/^(\d+)\.(\d+)(?![.\d])\b/)
+      : null;
+    if (dottedSub && currentMain) {
+      attachPendingOptions(questions, state.pendingOptions);
+      const subNumber = `${currentMain.number}.${dottedSub[2]}`;
+      questions.push(
+        buildQuestion({
+          number: subNumber,
+          rawText: getQuestionText(trimmed, null),
+          page: pageNumber,
+          isSub: true,
+          parentNumber: currentMain.number,
+          lineIndex: startIndex,
+          sectionIndex: state.currentSection,
+        }),
+      );
+      continue;
+    }
+
     const mainNum = extractMainNumber(trimmed);
     if (mainNum) {
+      // An explicit "Q1." / "Question 1." always starts a new main question.
+      const explicitQ = /^Q(?:uestion)?[\s.:]*[\d]/i.test(trimmed);
+      const numVal = parseInt(mainNum, 10);
+      const prevMainNum = currentMain
+        ? parseInt(currentMain.number, 10)
+        : NaN;
+      const runContinuation =
+        state.numberedSubsActive &&
+        state.lastSubNumber != null &&
+        Number.isFinite(numVal) &&
+        numVal <= state.lastSubNumber + 1;
+      const resetAfterMain =
+        Number.isFinite(numVal) &&
+        Number.isFinite(prevMainNum) &&
+        numVal <= prevMainNum;
+      const isNumberedSub =
+        !explicitQ && currentMain != null && (runContinuation || resetAfterMain);
+
+      if (isNumberedSub) {
+        attachPendingOptions(questions, state.pendingOptions);
+        const subNumber = `${currentMain.number}.${mainNum}`;
+        questions.push(
+          buildQuestion({
+            number: subNumber,
+            rawText: getQuestionText(trimmed, null),
+            page: pageNumber,
+            isSub: true,
+            parentNumber: currentMain.number,
+            lineIndex: startIndex,
+            sectionIndex: state.currentSection,
+          }),
+        );
+        state.numberedSubsActive = true;
+        state.lastSubNumber = numVal;
+        continue;
+      }
+
       attachPendingOptions(questions, state.pendingOptions);
-      const text = getQuestionText(trimmed, mainNum);
-      const q: ParsedQuestion = {
+      const q: ParsedQuestion = buildQuestion({
         number: mainNum,
-        text,
+        rawText: getQuestionText(trimmed, mainNum),
         page: pageNumber,
         isSub: false,
         parentNumber: null,
         lineIndex: startIndex,
-        maxMarks: extractMaxMarks(text) ?? undefined,
-      };
+        sectionIndex: state.currentSection,
+      });
       questions.push(q);
       state.currentMain = q;
+      state.numberedSubsActive = false;
+      state.lastSubNumber = null;
       continue;
     }
 
@@ -177,34 +347,47 @@ function parseQuestionLines(
     if (sub && state.currentMain) {
       attachPendingOptions(questions, state.pendingOptions);
       const subNumber = `${state.currentMain.number}${sub.kind === "letter" ? sub.number : `.${sub.number}`}`;
-      const text = getQuestionText(trimmed, null);
-      questions.push({
-        number: subNumber,
-        text,
-        page: pageNumber,
-        isSub: true,
-        parentNumber: state.currentMain.number,
-        lineIndex: startIndex,
-        maxMarks: extractMaxMarks(text) ?? undefined,
-      });
+      questions.push(
+        buildQuestion({
+          number: subNumber,
+          rawText: getQuestionText(trimmed, null),
+          page: pageNumber,
+          isSub: true,
+          parentNumber: state.currentMain.number,
+          lineIndex: startIndex,
+          sectionIndex: state.currentSection,
+        }),
+      );
       continue;
     }
 
     if (sub && !state.currentMain) {
       attachPendingOptions(questions, state.pendingOptions);
       const subNumber = sub.kind === "letter" ? sub.number : `0.${sub.number}`;
-      const text = getQuestionText(trimmed, null);
-      const q: ParsedQuestion = {
+      const q: ParsedQuestion = buildQuestion({
         number: subNumber,
-        text,
+        rawText: getQuestionText(trimmed, null),
         page: pageNumber,
         isSub: false,
         parentNumber: null,
         lineIndex: startIndex,
-        maxMarks: extractMaxMarks(text) ?? undefined,
-      };
+        sectionIndex: state.currentSection,
+      });
       questions.push(q);
       state.currentMain = q;
+      continue;
+    }
+
+    // A plain content line right after a question whose text is still blank or
+    // only the mark ("1. (5 Marks)" / "1." then "(5 Marks)" printed separately)
+    // is that question's actual wording — claim it as the question text.
+    const last = questions[questions.length - 1];
+    if (last && (last.text.trim() === "" || isMarksOnlyText(last.text))) {
+      const rawFill = trimmed.trim();
+      last.text = stripMarksFromText(rawFill);
+      if (last.maxMarks == null) {
+        last.maxMarks = extractMaxMarks(rawFill) ?? undefined;
+      }
     }
   }
 }
@@ -213,7 +396,13 @@ export function parseQuestionTextFromPages(
   pages: Array<{ pageNumber: number; content: string }>,
 ): ParsedQuestion[] {
   const all: ParsedQuestion[] = [];
-  const state: QuestionParserState = { currentMain: null, pendingOptions: [] };
+  const state: QuestionParserState = {
+    currentMain: null,
+    pendingOptions: [],
+    currentSection: 0,
+    numberedSubsActive: false,
+    lastSubNumber: null,
+  };
   const normalizedPages = pages.map((page) => ({ ...page, content: normalizeTableRows(page.content) }));
   for (const page of normalizedPages) {
     parseQuestionLines(page.content.split("\n"), page.pageNumber, all, state);
@@ -422,7 +611,13 @@ function deduplicateQuestions(questions: ParsedQuestion[]): ParsedQuestion[] {
   const result: ParsedQuestion[] = [];
 
   for (const q of questions) {
-    const key = normalizeQuestionNumber(q.number);
+    // Key by section + role + number. Same-numbered questions in different
+    // sections stay distinct, and a numbered sub-part ("1.1") is kept separate
+    // from a real main question numbered 11.
+    const role = q.isSub
+      ? `sub:${q.parentNumber ?? ""}:${normalizeQuestionNumber(q.number)}`
+      : `main:${normalizeQuestionNumber(q.number)}`;
+    const key = `${q.sectionIndex ?? 0}|${role}`;
     if (!seen.has(key)) {
       seen.set(key, q);
       result.push(q);

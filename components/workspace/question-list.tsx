@@ -77,6 +77,7 @@ function QuestionRow({
   depth?: number;
 }) {
   const scoreStyle = getScoreStyle(grade, status);
+  const isIssue = status === "unanswered" || status === "unmatched";
 
   const handleToggle = () => {
     onSelect(q.id);
@@ -89,7 +90,9 @@ function QuestionRow({
         "w-full overflow-hidden rounded-[16px] bg-white",
         "transition-all duration-150",
         expanded || active
-          ? "border-2 border-[#FF5623]"
+          ? isIssue
+            ? "border-2 border-[#C0350A]"
+            : "border-2 border-[#FF5623]"
           : "border-2 border-transparent",
       ].join(" ")}
       style={{
@@ -118,7 +121,7 @@ function QuestionRow({
         </span>
 
         {/* Question */}
-        <span className="min-w-0 flex-1 font-sans text-[16px] font-normal leading-[1.4] tracking-[-0.64px] text-[#303030]">
+        <span className="min-w-0 flex-1 font-sans text-[16px] font-normal leading-[1.4] tracking-[-0.64px] text-[#303030] line-clamp-3 break-words">
           {q.text}
         </span>
 
@@ -144,7 +147,19 @@ function QuestionRow({
                 color: scoreStyle.color,
               }}
             >
-              —
+              Not answered
+            </span>
+          )}
+
+          {status === "unmatched" && !grade && (
+            <span
+              className="rounded-full px-3 py-1 font-sans text-[14px] font-bold"
+              style={{
+                backgroundColor: scoreStyle.background,
+                color: scoreStyle.color,
+              }}
+            >
+              Not matched
             </span>
           )}
 
@@ -169,11 +184,32 @@ function QuestionRow({
         <div className="space-y-3 px-3 pb-3">
           {/* Unanswered */}
           {status === "unanswered" && (
-            <div className="flex items-start gap-2 rounded-[12px] bg-[#FFE9E2] px-4 py-3 text-sm text-[#C0350A]">
+            <>
+              {q.text && (
+                <div className="rounded-[16px] bg-[#F6F6F6] px-6 py-4">
+                  <p className="whitespace-pre-wrap font-sans text-[14px] font-normal leading-[1.4] tracking-[-0.56px] text-[#303030]">
+                    {q.text}
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-start gap-2 rounded-[12px] bg-[#C0350A] px-4 py-3 text-sm text-white">
+                <HelpCircle className="mt-0.5 size-4 shrink-0" />
+
+                <p className="font-sans leading-[1.4]">
+                  Student did not answer this question.
+                </p>
+              </div>
+            </>
+          )}
+
+          {/* Unmatched answer */}
+          {status === "unmatched" && (
+            <div className="flex items-start gap-2 rounded-[12px] bg-[#C0350A] px-4 py-3 text-sm text-white">
               <HelpCircle className="mt-0.5 size-4 shrink-0" />
 
               <p className="font-sans leading-[1.4]">
-                No matching answer found on the answer sheet.
+                This answer could not be matched to any question.
               </p>
             </div>
           )}
