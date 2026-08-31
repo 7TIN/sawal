@@ -583,6 +583,17 @@ export function Workspace({
     return { statuses, grades, answersById };
   }, [gradedItems, mapped, extraction.answers]);
 
+  // Questions shown in the review list: parsed questions in printed order,
+  // followed by any answer regions that could not be matched to a question.
+  const listQuestions = useMemo(() => {
+    if (!hasExtraction) return extraction.questions;
+    const unmatched = mapped
+      .filter((item) => item.status === "unmatched" && item.answer)
+      .map((item) => item.question)
+      .sort((a, b) => a.page - b.page);
+    return [...extraction.questions, ...unmatched];
+  }, [hasExtraction, mapped, extraction.questions]);
+
   // When a question is clicked, find its active page to scroll to
   const activePage = useMemo(() => {
     if (!activeQuestionId || !hasExtraction) return null;
@@ -1086,7 +1097,7 @@ version: 24,
           </p>
         ) : (
           <QuestionList
-            questions={extraction.questions}
+            questions={listQuestions}
             statuses={statuses}
             grades={grades}
             answersById={answersById}
@@ -1263,7 +1274,7 @@ version: 24,
                       </p>
                     ) : (
                       <QuestionList
-                        questions={extraction.questions}
+                        questions={listQuestions}
                         statuses={statuses}
                         grades={grades}
                         answersById={answersById}
@@ -1316,40 +1327,6 @@ version: 24,
 
       {showDebugPanels && (
         <>
-          {hasExtraction &&
-            (() => {
-              const unmatched = mapped.filter(
-                (i) => i.status === "unmatched" && i.answer,
-              );
-              if (unmatched.length === 0) return null;
-              return (
-                <div className="mt-5 rounded-xl border bg-card p-4">
-                  <h3 className="text-sm font-medium">
-                    {unmatched.length} unmatched{" "}
-                    {unmatched.length === 1 ? "answer" : "answers"}
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    These answer regions could not be matched to any question.
-                  </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {unmatched.map((item) => (
-                      <div
-                        key={item.answer!.id}
-                        className="rounded-md border bg-secondary/50 px-2.5 py-1.5 text-xs"
-                      >
-                        <span className="font-medium">
-                          {item.answer!.label}
-                        </span>
-                        <span className="ml-1.5 text-muted-foreground">
-                          (page {(item.answer!.regions[0]?.page ?? 0) + 1})
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
           <div className="mt-5 rounded-xl border bg-card">
             <div className="flex items-center">
               <button
